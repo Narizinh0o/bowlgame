@@ -358,17 +358,18 @@ export default function LaneView({ ev, hand, gender, team, speed, reaction, onIm
         ctx.fill()
       }
 
-      // кегли: стоящие + разлетающиеся (от дальних к ближним)
+      // Кегли (от дальних к ближним). До удара стоит ВСЯ расстановка pinsBefore;
+      // в момент удара сбитые разлетаются, остаток продолжает стоять.
       const order = [7, 8, 9, 10, 4, 5, 6, 2, 3, 1]
       for (const pin of order) {
         const pos = PIN_POS[pin]
         const pr = project(pos.u, pos.s)
         const h = 30 * pr.scale
-        const standing = ev.leaveAfter.includes(pin)
-        const stoodBefore = ev.pinsBefore.includes(pin)
-        if (standing) {
+        if (!ev.pinsBefore.includes(pin)) continue // сбита ещё прошлым броском
+        const survives = ev.leaveAfter.includes(pin)
+        if (survives || t < tImpact) {
           drawPinShape(pr.x, pr.y, h, 1, 0)
-        } else if (stoodBefore && t >= tImpact) {
+        } else {
           const ft = (t - tImpact) / T_FALL
           if (ft < 1) {
             const fall = falls.find((f) => f.pin === pin)
