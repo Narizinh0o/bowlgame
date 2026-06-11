@@ -5,3 +5,36 @@
 body {
   @apply bg-slate-950 text-slate-200 font-sans antialiased;
 }
+
+/* Появление реакции игрока */
+@keyframes pop-in {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes wiggle {
+  0%,
+  100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+.reaction-pop {
+  animation: pop-in 0.45s ease-out both;
+}
+/* Утрированная реакция: впрыгивает и трясётся */
+.reaction-huge {
+  animation:
+    pop-in 0.45s ease-out both,
+    wiggle 0.45s ease-in-out 0.45s 3;
+}
