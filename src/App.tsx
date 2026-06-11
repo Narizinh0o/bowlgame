@@ -1,88 +1,40 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
+  aiArrangeOrder,
+  aiPickIndex,
   buildLineup,
+  buildPool,
   buildRatedRoster,
   mulberry32,
   playMatch,
   randomSeed,
-  type BakerGame,
   type MatchPlayer,
   type MatchResult,
+  type Picked,
+  type PoolSlot,
   type RatedRoster,
-  type ThrowEvent,
 } from './engine'
+import MenuScreen from './components/MenuScreen'
+import DraftScreen from './components/DraftScreen'
+import ArrangeScreen from './components/ArrangeScreen'
+import MatchScreen from './components/MatchScreen'
 
-/**
- * ВРЕМЕННОЕ демо этапа 2 (GAME_PLAN.md): две случайные пятёрки, текстовый матч.
- * Настоящий UI (драфт, расстановка, анимация) — этапы 3-5.
- */
-
-const KIND_RU: Record<string, string> = {
-  single: 'одна кегля',
-  multi: 'мультипин',
-  split: 'СПЛИТ',
-  washout: 'вошаут',
-  gutter: 'ЖЕЛОБ — стоят все 10',
-  wild: 'дикий лив',
-}
-
-function throwText(e: ThrowEvent): string {
-  if (e.pinsBefore.length === 10) {
-    if (e.isStrike) return 'СТРАЙК!'
-    return `сбито ${e.pinsDown}, ${KIND_RU[e.leaveKind ?? '']}: ${e.leaveAfter.join('-') || '—'}`
-  }
-  if (e.isSpare) return `добил ${e.pinsBefore.join('-')} — спэр!`
-  return e.pinsDown === 0 ? `промах по ${e.pinsBefore.join('-')}` : `сбил только ${e.pinsDown}`
-}
-
-/** Символы бросков фрейма: X / – и цифры, с учётом «свежих» расстановок 10-го фрейма. */
-function frameSymbols(throws: number[], isTenth: boolean): string[] {
-  return throws.map((t, j) => {
-    const digit = t === 0 ? '–' : String(t)
-    if (j === 0) return t === 10 ? 'X' : digit
-    const prev = throws[j - 1]
-    const fresh = isTenth && (prev === 10 || (j === 2 && throws[0] !== 10 && throws[0] + throws[1] === 10))
-    if (fresh) return t === 10 ? 'X' : digit
-    return prev + t === 10 ? '/' : digit
-  })
-}
-
-function FrameCell({ game, i }: { game: BakerGame; i: number }) {
-  const f = game.frames[i]
-  return (
-    <div className="flex flex-col items-center border-r border-slate-700 last:border-r-0 min-w-[2.5rem]">
-      <div className="text-xs text-slate-400 h-4">{frameSymbols(f.throws, i === 9).join(' ')}</div>
-      <div className="font-semibold tabular-nums">{f.cumulative ?? ''}</div>
-    </div>
-  )
-}
-
-function TeamBoard({ name, game, lineup }: { name: string; game: BakerGame; lineup: MatchPlayer[] }) {
-  return (
-    <div className="rounded-lg bg-slate-900 p-3">
-      <div className="flex items-baseline justify-between mb-2">
-        <span className="font-bold text-amber-400">{name}</span>
-        <span className="text-2xl font-extrabold tabular-nums">{game.total}</span>
-      </div>
-      <div className="flex overflow-x-auto rounded border border-slate-700 bg-slate-800/50 p-1">
-        {game.frames.map((_, i) => (
-          <FrameCell key={i} game={game} i={i} />
-        ))}
-      </div>
-      <div className="mt-2 text-xs text-slate-400">
-        {lineup.map((p, i) => (
-          <span key={p.id} className="mr-3">
-            {i + 1}. {p.name} ({p.effRating}{p.clubBonus > 0 ? ` · клуб +${p.clubBonus}` : ''})
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-}
+type Mode = 'ai' | 'hotseat'
+type Screen =
+  | { s: 'menu' }
+  | { s: 'draft' }
+  | { s: 'arrange'; who: 0 | 1 }
+  | { s: 'match'; lineups: [MatchPlayer[], MatchPlayer[]]; result: MatchResult }
 
 export default function App() {
   const [rated, setRated] = useState<RatedRoster | null>(null)
-  const [match, setMatch] = useState<{ result: MatchResult; a: MatchPlayer[]; b: MatchPlayer[] } | null>(null)
+  const [screen, setScreen] = useState<Screen>({ s: 'menu' })
+  const [mode, setMode] = useState<Mode>('ai')
+  const [pool, setPool] = useState<PoolSlot[]>([])
+  const [turn, setTurn] = useState<0 | 1>(0)
+  const [first, setFirst] = useState<0 | 1>(0)
+  const [orderA, setOrderA] = useState<Picked[] | null>(null)
+  const rngRef = useRef(mulberry32(randomSeed()))
 
   useEffect(() => {
     fetch('/data/roster.json')
@@ -90,57 +42,109 @@ export default function App() {
       .then((roster) => setRated(buildRatedRoster(roster)))
   }, [])
 
-  const play = () => {
+  const names: [string, string] = mode === 'ai' ? ['Ты', 'Компьютер'] : ['Игрок 1', 'Игрок 2']
+  const tags: [string, string] = mode === 'ai' ? ['Ты', 'ПК'] : ['И1', 'И2']
+
+  const picksOf = (pl: PoolSlot[], team: 0 | 1): Picked[] => pl.filter((s) => s.pickedBy === team)
+
+  const startDraft = (m: Mode) => {
     if (!rated) return
-    const rng = mulberry32(randomSeed())
-    const shuffled = [...rated.players].sort(() => rng() - 0.5)
-    const a = buildLineup(shuffled.slice(0, 5).map((player) => ({ player, rarity: 'common' as const })), rated.r80)
-    const b = buildLineup(shuffled.slice(5, 10).map((player) => ({ player, rarity: 'common' as const })), rated.r80)
-    setMatch({ result: playMatch(a, b, rng), a, b })
+    rngRef.current = mulberry32(randomSeed())
+    const f: 0 | 1 = rngRef.current() < 0.5 ? 0 : 1
+    setMode(m)
+    setPool(buildPool(rated.players, rngRef.current))
+    setFirst(f)
+    setTurn(f)
+    setOrderA(null)
+    setScreen({ s: 'draft' })
+  }
+
+  const doPick = (i: number) => {
+    if (screen.s !== 'draft' || pool[i].pickedBy !== null) return
+    const next = pool.map((s, j) => (j === i ? { ...s, pickedBy: turn } : s))
+    setPool(next)
+    if (next.filter((s) => s.pickedBy !== null).length >= 10) {
+      setScreen({ s: 'arrange', who: 0 })
+    } else {
+      setTurn(turn === 0 ? 1 : 0)
+    }
+  }
+
+  // Ход компьютера — с паузой, чтобы драфт ощущался живым.
+  useEffect(() => {
+    if (screen.s !== 'draft' || mode !== 'ai' || turn !== 1) return
+    const t = setTimeout(() => {
+      const idx = aiPickIndex(pool, 1, rngRef.current)
+      if (idx >= 0) doPick(idx)
+    }, 650)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen.s, mode, turn, pool])
+
+  const startMatch = (oA: Picked[], oB: Picked[]) => {
+    if (!rated) return
+    const lineups: [MatchPlayer[], MatchPlayer[]] = [buildLineup(oA, rated.r80), buildLineup(oB, rated.r80)]
+    const result = playMatch(lineups[0], lineups[1], mulberry32(randomSeed()))
+    setScreen({ s: 'match', lineups, result })
+  }
+
+  const onArranged = (order: Picked[]) => {
+    if (screen.s !== 'arrange') return
+    if (screen.who === 0) {
+      if (mode === 'ai') {
+        startMatch(order, aiArrangeOrder(picksOf(pool, 1)))
+      } else {
+        setOrderA(order)
+        setScreen({ s: 'arrange', who: 1 })
+      }
+    } else if (orderA) {
+      startMatch(orderA, order)
+    }
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-4">
-      <h1 className="text-2xl font-extrabold text-amber-400">КЛБ Боулинг-Батл</h1>
-      <p className="mt-1 text-sm text-slate-400">
-        Демо движка (этап 2): две случайные пятёрки из {rated ? rated.players.length : '…'} реальных игроков КЛБ,
-        одна игра по Бейкеру. Драфт и анимация — следующие этапы.
-      </p>
-      <button
-        onClick={play}
-        disabled={!rated}
-        className="mt-3 rounded-lg bg-amber-500 px-4 py-2 font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
-      >
-        Случайный матч
-      </button>
+    <div className="mx-auto max-w-5xl p-3 md:p-4">
+      {screen.s !== 'menu' && (
+        <header className="mb-3 flex items-center justify-between">
+          <button onClick={() => setScreen({ s: 'menu' })} className="text-sm text-slate-400 transition hover:text-slate-200">
+            ← Меню
+          </button>
+          <span className="text-sm font-bold text-amber-400">КЛБ Боулинг-Батл</span>
+        </header>
+      )}
 
-      {match && (
-        <div className="mt-4 space-y-3">
-          <TeamBoard name="Команда А" game={match.result.gameA} lineup={match.a} />
-          <TeamBoard name="Команда Б" game={match.result.gameB} lineup={match.b} />
-          <div className="font-bold">
-            Победитель: <span className="text-amber-400">{match.result.winner === 0 ? 'Команда А' : 'Команда Б'}</span>
-            {match.result.extra.length > 0 && ' (в sudden death!)'}
-          </div>
-          <details className="rounded-lg bg-slate-900 p-3 text-sm">
-            <summary className="cursor-pointer font-semibold text-slate-300">Лог бросков</summary>
-            <div className="mt-2 grid gap-x-6 gap-y-1 md:grid-cols-2">
-              {(['gameA', 'gameB'] as const).map((g) => (
-                <div key={g}>
-                  <div className="mb-1 font-semibold text-amber-400">{g === 'gameA' ? 'Команда А' : 'Команда Б'}</div>
-                  {match.result[g].events.map((e, i) => {
-                    const pl = (g === 'gameA' ? match.a : match.b).find((p) => p.id === e.playerId)
-                    return (
-                      <div key={i} className="text-slate-400">
-                        <span className="text-slate-500">Ф{e.frame}</span> {pl?.name.split(' ')[0]}: {throwText(e)}
-                      </div>
-                    )
-                  })}
-                </div>
-              ))}
-            </div>
-          </details>
-        </div>
+      {screen.s === 'menu' && <MenuScreen count={rated ? rated.players.length : null} onStart={startDraft} />}
+
+      {screen.s === 'draft' && (
+        <DraftScreen
+          pool={pool}
+          names={names}
+          tags={tags}
+          turn={turn}
+          first={first}
+          aiTurn={mode === 'ai' && turn === 1}
+          onPick={doPick}
+        />
+      )}
+
+      {screen.s === 'arrange' && (
+        <ArrangeScreen
+          key={screen.who}
+          title={`${names[screen.who]}: расставь пятёрку по слотам`}
+          picks={picksOf(pool, screen.who)}
+          doneLabel={mode === 'hotseat' && screen.who === 0 ? 'Готово — дальше соперник' : 'В бой!'}
+          onDone={onArranged}
+        />
+      )}
+
+      {screen.s === 'match' && (
+        <MatchScreen
+          names={names}
+          lineups={screen.lineups}
+          result={screen.result}
+          onNewDraft={() => startDraft(mode)}
+          onMenu={() => setScreen({ s: 'menu' })}
+        />
       )}
     </div>
   )

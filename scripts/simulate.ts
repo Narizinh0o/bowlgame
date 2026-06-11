@@ -149,6 +149,26 @@ console.log('\n=== Реальный ростер ===')
     console.log(`${name.padEnd(12)} | ${fmt(realAvg(team))}     | ${fmt(sum / 3000)}`)
   }
 
+  // Хвосты распределения: хайскоры должны существовать, но оставаться событием.
+  for (const [name, team] of [['топ-5', top5], ['медиана', mid5]] as const) {
+    const rngT = mulberry32(321)
+    const N = 20000
+    let max = 0
+    let c250 = 0
+    let c279 = 0
+    let c300 = 0
+    for (let i = 0; i < N; i++) {
+      const t = playBakerGame(team, rngT).total
+      if (t > max) max = t
+      if (t >= 250) c250++
+      if (t >= 279) c279++
+      if (t === 300) c300++
+    }
+    console.log(
+      `хайскоры (${name}): max ${max}, 250+ ${((100 * c250) / N).toFixed(2)}%, 279+ ${((100 * c279) / N).toFixed(2)}%, 300 ровно ${((100 * c300) / N).toFixed(3)}%`,
+    )
+  }
+
   // Частота «диких» ливов — целевое: порядка 1 игры из 50–100 (у слабых чаще, но не разгул).
   for (const [name, team] of [['медиана', mid5], ['низ-5', bottom5]] as const) {
     const rngW = mulberry32(123)
