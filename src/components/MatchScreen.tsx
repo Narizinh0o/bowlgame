@@ -117,6 +117,7 @@ function TeamBoard({
   name,
   frames,
   total,
+  hcp,
   lineup,
   active,
   activeFrame,
@@ -125,6 +126,7 @@ function TeamBoard({
   name: string
   frames: (FrameScore | null)[]
   total: number
+  hcp: number
   lineup: MatchPlayer[]
   active: boolean
   activeFrame: number | null
@@ -136,6 +138,11 @@ function TeamBoard({
         <span className={`font-bold ${active || won ? 'text-amber-400' : 'text-slate-300'}`}>
           {name}
           {won && ' 🏆'}
+          {hcp > 0 && (
+            <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-xs font-semibold text-slate-300">
+              ♀ +{hcp}
+            </span>
+          )}
         </span>
         <span className="text-2xl font-extrabold tabular-nums">{total}</span>
       </div>
@@ -214,7 +221,7 @@ export default function MatchScreen({ names, lineups, result, onNewDraft, onMenu
   const player = lineups[cur.team].find((p) => p.id === cur.ev.playerId)
   const phrase =
     REACTION_PHRASES[cur.reaction][(shown - 1) % REACTION_PHRASES[cur.reaction].length]
-  const finalTotals: [number, number] = [result.gameA.total, result.gameB.total]
+  const { finalTotals, hcp } = result
 
   return (
     <div className="space-y-3">
@@ -224,6 +231,7 @@ export default function MatchScreen({ names, lineups, result, onNewDraft, onMenu
           name={names[team]}
           frames={boards[team].frames}
           total={done ? finalTotals[team] : boards[team].total}
+          hcp={hcp[team]}
           lineup={lineups[team]}
           active={!done && cur.team === team}
           activeFrame={!done && cur.team === team && !cur.isExtra ? cur.ev.frame : null}
@@ -296,6 +304,11 @@ export default function MatchScreen({ names, lineups, result, onNewDraft, onMenu
                 {finalTotals[0]}:{finalTotals[1]}
               </span>
             </div>
+            {(hcp[0] > 0 || hcp[1] > 0) && (
+              <div className="mt-1 text-sm text-slate-400">
+                Кегли {result.gameA.total}:{result.gameB.total} · гандикап ♀ +{hcp[0]} : +{hcp[1]}
+              </div>
+            )}
             {result.extra.length > 0 && (
               <div className="mt-1 text-sm text-slate-400">
                 Ничья в основное время — судьбу решил sudden death (

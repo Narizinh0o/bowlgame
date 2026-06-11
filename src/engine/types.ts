@@ -71,6 +71,8 @@ export interface ExtraFrame {
 export interface MatchResult {
   gameA: BakerGame
   gameB: BakerGame
+  hcp: [number, number] // гандикап за девушек (+2 за каждую в пятёрке)
+  finalTotals: [number, number] // кегли + гандикап — по ним определяется победитель
   extra: ExtraFrame[]
   winner: 0 | 1
 }

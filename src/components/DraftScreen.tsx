@@ -1,4 +1,4 @@
-import { CLUB_BONUS, displayRating, type Picked, type PoolSlot } from '../engine'
+import { CLUB_BONUS, displayRating, teamHcp, type Picked, type PoolSlot } from '../engine'
 import { RARITY_CARD, RARITY_LABEL, RARITY_TEXT, capName, genderHand, shortName } from './ui'
 
 interface Props {
@@ -25,7 +25,12 @@ function TeamPanel({ label, picks, active }: { label: string; picks: Picked[]; a
     <div className={`rounded-lg border p-2 ${active ? 'border-amber-400/70 bg-slate-900' : 'border-slate-700 bg-slate-900/50'}`}>
       <div className="flex items-center justify-between">
         <span className={`text-sm font-bold ${active ? 'text-amber-400' : 'text-slate-300'}`}>{label}</span>
-        <span className="text-xs text-slate-500">{picks.length}/5</span>
+        <span className="text-xs text-slate-500">
+          {teamHcp(picks.map((p) => p.player)) > 0 && (
+            <span className="mr-2 text-slate-400">♀ +{teamHcp(picks.map((p) => p.player))}</span>
+          )}
+          {picks.length}/5
+        </span>
       </div>
       <div className="mt-1 flex min-h-[1.6rem] flex-wrap gap-1">
         {picks.map((p) => (

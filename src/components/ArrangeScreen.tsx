@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { clubBonuses, displayRating, type Picked } from '../engine'
+import { clubBonuses, displayRating, teamHcp, type Picked } from '../engine'
 import { RARITY_CARD, RARITY_LABEL, RARITY_TEXT, capName, genderHand } from './ui'
 
 interface Props {
@@ -43,6 +43,11 @@ export default function ArrangeScreen({ title, picks, doneLabel, onDone }: Props
         <div className="mt-2 rounded-lg border border-emerald-500/40 bg-emerald-950/30 p-2 text-sm text-emerald-300">
           Клубная синергия:{' '}
           {syn.map(([club, n]) => `${club} ×${n}`).join(', ')} — бонус уже включён в рейтинг ниже.
+        </div>
+      )}
+      {teamHcp(order.map((p) => p.player)) > 0 && (
+        <div className="mt-2 rounded-lg border border-slate-600 bg-slate-900 p-2 text-sm text-slate-300">
+          Гандикап за девушек: <b className="text-slate-100">+{teamHcp(order.map((p) => p.player))}</b> к итогу игры
         </div>
       )}
 

@@ -39,10 +39,14 @@ export function buildPool(players: RatedPlayer[], rng: Rng): PoolSlot[] {
   return chosen.map((player, i) => ({ player, rarity: rarities[i], pickedBy: null }))
 }
 
-/** Ценность состава: сумма рейтингов с редкостями и клубной синергией. */
+/** Ценность состава: рейтинги с редкостями + клубная синергия + ценность гандикапа
+ *  за девушек (+2 очка игры ≈ +1 пункт рейтинга по калибровке симуляции). */
 function teamValue(picks: Picked[]): number {
   const bonuses = clubBonuses(picks.map((p) => p.player))
-  return picks.reduce((s, p, i) => s + displayRating(p) + bonuses[i], 0)
+  return picks.reduce(
+    (s, p, i) => s + displayRating(p) + bonuses[i] + (p.player.gender === 'Ж' ? 1 : 0),
+    0,
+  )
 }
 
 /**

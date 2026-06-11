@@ -16,6 +16,7 @@ import {
   playBakerGame,
   playMatch,
   scoreGame,
+  teamHcp,
   toMatchPlayer,
   type MatchPlayer,
   type RatedPlayer,
@@ -199,6 +200,24 @@ console.log('\n=== Реальный ростер ===')
   for (let i = 0; i < 3000; i++) sumBoost += playBakerGame(mid5boost, rngA).total
   console.log(`клубный бонус +20 у медианной пятёрки: тотал ${fmt(sumBase / 3000)} -> ${fmt(sumBoost / 3000)}, винрейт ${(boostWins / 20).toFixed(1)}%`)
   check(boostWins / 2000 > 0.6, 'бонус +20 должен заметно повышать винрейт')
+
+  // ---------- 6. Гандикап за девушек: +2 очка к итогу игры за каждую ----------
+  check(teamHcp([{ gender: 'М' }, { gender: 'М' }, { gender: 'М' }]) === 0, 'teamHcp: без девушек 0')
+  check(
+    teamHcp([{ gender: 'Ж' }, { gender: 'Ж' }, { gender: 'Ж' }, { gender: 'М' }, { gender: 'М' }]) === 6,
+    'teamHcp: 3 девушки = +6',
+  )
+  check(teamHcp(Array(5).fill({ gender: 'Ж' })) === 10, 'teamHcp: 5 девушек = +10')
+
+  const mAll = byRating.filter((p) => p.gender === 'М')
+  const startM = Math.max(0, Math.floor(mAll.length / 2) - 2)
+  const midM = mAll.slice(startM, startM + 5).map(mp)
+  const midF = midM.map((p) => ({ ...p, gender: 'Ж' }))
+  let fWins = 0
+  const rngH = mulberry32(13)
+  for (let i = 0; i < 3000; i++) if (playMatch(midF, midM, rngH).winner === 0) fWins++
+  console.log(`гандикап ♀ +10 у зеркальной команды: винрейт ${(fWins / 30).toFixed(1)}% (ожидание ~60%)`)
+  check(fWins / 3000 > 0.55, 'гандикап +10 должен давать ощутимое преимущество')
 }
 
 console.log(failed ? '\n!!! ЕСТЬ ПРОВАЛЕННЫЕ ПРОВЕРКИ' : '\nвсе проверки пройдены')

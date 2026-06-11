@@ -1,4 +1,5 @@
 import type { BakerGame, ExtraFrame, FrameScore, MatchPlayer, MatchResult, ThrowEvent } from './types'
+import { FEMALE_GAME_HCP } from './constants'
 import { ALL_PINS } from './leaves'
 import { rollFirstThrow, rollSecondThrow } from './throws'
 import type { Rng } from './rng'
@@ -161,15 +162,23 @@ function playExtraFrame(p: MatchPlayer, frame: number, rng: Rng): { events: Thro
   return { events, pins: t1.pinsDown + t2.pinsDown }
 }
 
-/** Матч: по одной игре Бейкера на команду; ничья решается sudden death по слотам. */
+/** Гандикап команды: +2 очка к итогу игры за каждую девушку в пятёрке. */
+export function teamHcp(lineup: { gender: string }[]): number {
+  return lineup.filter((p) => p.gender === 'Ж').length * FEMALE_GAME_HCP
+}
+
+/** Матч: по одной игре Бейкера на команду; победитель — по «кегли + гандикап»;
+ *  ничья решается sudden death по слотам (чистыми кеглями, гандикап разовый на игру). */
 export function playMatch(lineupA: MatchPlayer[], lineupB: MatchPlayer[], rng: Rng): MatchResult {
   const gameA = playBakerGame(lineupA, rng)
   const gameB = playBakerGame(lineupB, rng)
+  const hcp: [number, number] = [teamHcp(lineupA), teamHcp(lineupB)]
+  const finalTotals: [number, number] = [gameA.total + hcp[0], gameB.total + hcp[1]]
   const extra: ExtraFrame[] = []
 
   let winner: 0 | 1
-  if (gameA.total !== gameB.total) {
-    winner = gameA.total > gameB.total ? 0 : 1
+  if (finalTotals[0] !== finalTotals[1]) {
+    winner = finalTotals[0] > finalTotals[1] ? 0 : 1
   } else {
     winner = 0
     let frame = 11
@@ -190,5 +199,5 @@ export function playMatch(lineupA: MatchPlayer[], lineupB: MatchPlayer[], rng: R
     if (!decided) winner = rng() < 0.5 ? 0 : 1
   }
 
-  return { gameA, gameB, extra, winner }
+  return { gameA, gameB, hcp, finalTotals, extra, winner }
 }
