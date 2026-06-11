@@ -10,6 +10,7 @@ import {
   type Reaction,
   type ThrowEvent,
 } from '../engine'
+import LaneView from './LaneView'
 import PinDeck from './PinDeck'
 import { capName, shortName } from './ui'
 
@@ -23,16 +24,6 @@ const KIND_RU: Record<string, string> = {
   washout: 'вошаут',
   gutter: 'ЖЕЛОБ — стоят все 10',
   wild: 'дикий лив',
-}
-
-const REACTION_EMOJI: Record<Reaction, string> = {
-  huge_joy: '🤩',
-  joy: '😄',
-  cocky: '😎',
-  neutral: '',
-  sad: '😟',
-  huge_sad: '😱',
-  stone_face: '🗿',
 }
 
 const REACTION_PHRASES: Record<Reaction, string[]> = {
@@ -200,18 +191,30 @@ export default function MatchScreen({ names, lineups, result, onNewDraft, onMenu
 
   const [shown, setShown] = useState(1) // сколько шагов уже видно
   const [speed, setSpeed] = useState<1 | 2>(1)
+  const [impacted, setImpacted] = useState(false) // шар дошёл до кеглей (результат виден)
   const done = shown >= steps.length
   const cur = steps[Math.min(shown, steps.length) - 1]
 
   useEffect(() => {
-    if (done) return
+    setImpacted(false)
+  }, [shown])
+
+  // Фолбэк: если rAF замер (фоновая вкладка) — матч не зависает.
+  useEffect(() => {
+    if (done || impacted) return
+    const t = setTimeout(() => setImpacted(true), 4500 / speed)
+    return () => clearTimeout(t)
+  }, [shown, impacted, done, speed])
+
+  // Следующий бросок — после паузы на результат и реакцию.
+  useEffect(() => {
+    if (done || !impacted) return
     const r = cur.reaction
-    let delay = 1900
-    if (cur.ev.isStrike || cur.ev.isSpare) delay += 200
-    if (r === 'huge_joy' || r === 'huge_sad' || r === 'stone_face') delay += 400
+    let delay = 1500
+    if (r === 'huge_joy' || r === 'huge_sad' || r === 'stone_face') delay += 450
     const t = setTimeout(() => setShown((s) => s + 1), delay / speed)
     return () => clearTimeout(t)
-  }, [shown, done, speed, cur])
+  }, [impacted, done, speed, cur])
 
   const shownSteps = steps.slice(0, shown)
   const boards = ([0, 1] as const).map((team) =>
@@ -241,34 +244,34 @@ export default function MatchScreen({ names, lineups, result, onNewDraft, onMenu
 
       {!done && (
         <>
-          <div className="flex min-h-[7rem] items-center gap-3 rounded-lg bg-slate-900 p-3">
-            <PinDeck before={cur.ev.pinsBefore} after={cur.ev.leaveAfter} />
-            <div className="min-w-0 flex-1">
-              <div className="text-xs text-slate-500">
-                Фрейм {cur.ev.frame}
-                {cur.isExtra && ' · SUDDEN DEATH'} · {names[cur.team]}
-              </div>
-              <div className="truncate font-bold">{player ? capName(player.name) : ''}</div>
-              <div className={`text-sm ${throwTextClass(cur.ev)}`}>{throwText(cur.ev)}</div>
+          <div className="overflow-hidden rounded-lg bg-slate-900">
+            <div className="mx-auto max-w-[540px]">
+              <LaneView
+                key={shown}
+                ev={cur.ev}
+                hand={player?.hand ?? 'R'}
+                gender={player?.gender ?? 'М'}
+                team={cur.team}
+                speed={speed}
+                reaction={cur.reaction}
+                onImpact={() => setImpacted(true)}
+              />
             </div>
-            <div className="ml-auto w-20 shrink-0 text-center">
-              {cur.reaction !== 'neutral' && (
-                <div
-                  key={shown}
-                  className={
-                    cur.reaction === 'stone_face'
-                      ? ''
-                      : cur.reaction === 'huge_joy' || cur.reaction === 'huge_sad'
-                        ? 'reaction-huge'
-                        : 'reaction-pop'
-                  }
-                >
-                  <div className={cur.reaction === 'huge_joy' || cur.reaction === 'huge_sad' ? 'text-4xl' : 'text-3xl'}>
-                    {REACTION_EMOJI[cur.reaction]}
-                  </div>
-                  <div className="mt-0.5 text-[10px] leading-tight text-slate-400">{phrase}</div>
+            <div className="flex min-h-[4.5rem] items-center gap-3 border-t border-slate-800 p-3">
+              <PinDeck before={cur.ev.pinsBefore} after={impacted ? cur.ev.leaveAfter : cur.ev.pinsBefore} />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs text-slate-500">
+                  Фрейм {cur.ev.frame}
+                  {cur.isExtra && ' · SUDDEN DEATH'} · {names[cur.team]}
                 </div>
-              )}
+                <div className="truncate font-bold">{player ? capName(player.name) : ''}</div>
+                <div className={`text-sm ${impacted ? throwTextClass(cur.ev) : 'text-slate-500'}`}>
+                  {impacted ? throwText(cur.ev) : 'бросает…'}
+                </div>
+                {impacted && cur.reaction !== 'neutral' && (
+                  <div className="reaction-pop text-xs text-slate-400">{phrase}</div>
+                )}
+              </div>
             </div>
           </div>
 
