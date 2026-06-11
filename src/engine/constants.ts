@@ -37,7 +37,7 @@ export const CAT_WEIGHTS = {
   split: 5.5,
   washout: 2.5,
   gutter: 0.5,
-  wild: 1.0,
+  wild: 0.08,
 } as const
 
 /** «Плохие» категории (вес падает с ростом skill): mult = 1 - BAD_GAIN * tanh(skill/BAD_SCALE). */

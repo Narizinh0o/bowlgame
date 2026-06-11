@@ -149,6 +149,19 @@ console.log('\n=== Реальный ростер ===')
     console.log(`${name.padEnd(12)} | ${fmt(realAvg(team))}     | ${fmt(sum / 3000)}`)
   }
 
+  // Частота «диких» ливов — целевое: порядка 1 игры из 50–100 (у слабых чаще, но не разгул).
+  for (const [name, team] of [['медиана', mid5], ['низ-5', bottom5]] as const) {
+    const rngW = mulberry32(123)
+    const N = 20000
+    let wildGames = 0
+    for (let i = 0; i < N; i++) {
+      if (playBakerGame(team, rngW).events.some((e) => e.leaveKind === 'wild')) wildGames++
+    }
+    const share = (100 * wildGames) / N
+    console.log(`«дикие» ливы (${name}): ${share.toFixed(2)}% игр (~1 из ${wildGames ? Math.round(N / wildGames) : '>20000'})`)
+    check(share < 3, `дикие ливы у «${name}» чаще 3% игр`)
+  }
+
   const rng = mulberry32(99)
   let topWins = 0
   for (let i = 0; i < 2000; i++) if (playMatch(top5, bottom5, rng).winner === 0) topWins++
