@@ -1,5 +1,5 @@
-import { CLUB_BONUS, displayRating, teamHcp, type Picked, type PoolSlot } from '../engine'
-import { RARITY_CARD, RARITY_LABEL, RARITY_TEXT, capName, genderHand, shortName } from './ui'
+import { CLUB_BONUS, displayRating, leftyBonuses, poolRating, teamHcp, type Picked, type PoolSlot } from '../engine'
+import { EZ_BADGE, RARITY_CARD, RARITY_LABEL, RARITY_TEXT, capName, genderSymbol, shortName } from './ui'
 
 interface Props {
   pool: PoolSlot[]
@@ -21,6 +21,8 @@ function clubCounts(picks: Picked[]): Map<string, number> {
 
 function TeamPanel({ label, picks, active }: { label: string; picks: Picked[]; active: boolean }) {
   const syn = [...clubCounts(picks).entries()].filter(([, n]) => n >= 2)
+  const lefty = leftyBonuses(picks.map((p) => p.player))
+  const lefties = picks.filter((p) => p.player.hand === 'L').length
   return (
     <div className={`rounded-lg border p-2 ${active ? 'border-amber-400/70 bg-slate-900' : 'border-slate-700 bg-slate-900/50'}`}>
       <div className="flex items-center justify-between">
@@ -33,13 +35,14 @@ function TeamPanel({ label, picks, active }: { label: string; picks: Picked[]; a
         </span>
       </div>
       <div className="mt-1 flex min-h-[1.6rem] flex-wrap gap-1">
-        {picks.map((p) => (
+        {picks.map((p, i) => (
           <span key={p.player.id} className={`rounded border px-1.5 py-0.5 text-xs ${RARITY_CARD[p.rarity]}`}>
-            {shortName(p.player.name)} <b className="tabular-nums">{displayRating(p)}</b>
+            {shortName(p.player.name)} <b className="tabular-nums">{displayRating(p) + lefty[i]}</b>
+            {p.player.hand === 'L' && <span className={`ml-0.5 ${EZ_BADGE}`}>EZ</span>}
           </span>
         ))}
       </div>
-      {syn.length > 0 && (
+      {(syn.length > 0 || lefties > 0) && (
         <div className="mt-1 text-[11px]">
           {syn.map(([club, n]) => (
             <span key={club} className={`mr-2 ${n >= 3 ? 'text-emerald-400' : 'text-slate-400'}`}>
@@ -47,6 +50,12 @@ function TeamPanel({ label, picks, active }: { label: string; picks: Picked[]; a
               {n >= 3 ? ` (+${CLUB_BONUS[n]} каждому)` : ''}
             </span>
           ))}
+          {lefties > 0 && (
+            <span className={lefty.find((b) => b !== 0)! > 0 ? 'text-red-400' : 'text-slate-400'}>
+              EZ ×{lefties} ({lefty.find((b) => b !== 0)! > 0 ? '+' : ''}
+              {lefty.find((b) => b !== 0)} каждому левше)
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -91,8 +100,11 @@ export default function DraftScreen({ pool, names, tags, turn, first, aiTurn, on
               <div className="min-h-[2rem] text-xs font-semibold leading-tight">{capName(s.player.name)}</div>
               <div className="mt-0.5 truncate text-[10px] text-slate-400">{s.player.club}</div>
               <div className="mt-1 flex items-end justify-between">
-                <span className="text-[10px] text-slate-500">{genderHand(s.player)}</span>
-                <span className="text-lg font-extrabold tabular-nums">{displayRating(s)}</span>
+                <span className="text-[10px] text-slate-500">
+                  {genderSymbol(s.player)}
+                  {s.player.hand === 'L' && <span className={`ml-1 ${EZ_BADGE}`}>EZ</span>}
+                </span>
+                <span className="text-lg font-extrabold tabular-nums">{poolRating(s)}</span>
               </div>
               <div className="flex min-h-[0.9rem] items-center justify-between">
                 <span className={`text-[10px] font-bold ${RARITY_TEXT[s.rarity]}`}>{RARITY_LABEL[s.rarity]}</span>

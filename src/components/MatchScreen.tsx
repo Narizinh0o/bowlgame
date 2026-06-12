@@ -15,7 +15,7 @@ import {
   type RolloffResult,
   type ThrowEvent,
 } from '../engine'
-import DualLaneView, { type BenchMood } from './DualLaneView'
+import DualLaneView, { type BenchMood, type LaneHud } from './DualLaneView'
 import PinDeck from './PinDeck'
 import { capName, shortName } from './ui'
 
@@ -150,7 +150,8 @@ function TeamBoard({
         {lineup.map((p, i) => (
           <span key={p.id}>
             {i + 1}. {shortName(p.name)} ({p.effRating}
-            {p.clubBonus > 0 ? ` · клуб +${p.clubBonus}` : ''})
+            {p.clubBonus > 0 ? ` · клуб +${p.clubBonus}` : ''}
+            {p.leftyBonus !== 0 ? ` · EZ ${p.leftyBonus > 0 ? '+' : ''}${p.leftyBonus}` : ''})
           </span>
         ))}
       </div>
@@ -264,6 +265,7 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
   const [shown, setShown] = useState(1)
   const [impacted, setImpacted] = useState(false)
   const [speed, setSpeed] = useState<1 | 2>(1)
+  const [paused, setPaused] = useState(false)
 
   const rolloffSteps = useMemo<Step[]>(() => {
     if (!rolloff) return []
@@ -303,15 +305,15 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
 
   // Фолбэк: rAF замер в фоновой вкладке — не зависаем.
   useEffect(() => {
-    if (!playing || impacted) return
+    if (!playing || impacted || paused) return
     const t = setTimeout(() => setImpacted(true), 4500 / speed)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, impacted, speed, stage])
+  }, [shown, impacted, speed, stage, paused])
 
   // После показа результата — следующий бросок или следующая фаза.
   useEffect(() => {
-    if (!playing || !impacted || !cur) return
+    if (!playing || !impacted || !cur || paused) return
     let delay = 1500
     if (cur.reaction === 'huge_joy' || cur.reaction === 'huge_sad' || cur.reaction === 'stone_face') delay += 450
     if (cur.rolloff) delay += 250
@@ -325,18 +327,18 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
     }, delay / speed)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [impacted, speed, shown, stage])
+  }, [impacted, speed, shown, stage, paused])
 
   // Баннер смены дорожек.
   useEffect(() => {
-    if (stage.k !== 'between') return
+    if (stage.k !== 'between' || paused) return
     const t = setTimeout(() => {
       setStage({ k: 'play', gi: 1 })
       setShown(1)
       setImpacted(false)
     }, 2800 / speed)
     return () => clearTimeout(t)
-  }, [stage, speed])
+  }, [stage, speed, paused])
 
   const handlePick = (slot: number) => {
     if (stage.k !== 'pick') return
@@ -384,6 +386,19 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
   const phrase = cur ? REACTION_PHRASES[cur.reaction][(shown - 1) % REACTION_PHRASES[cur.reaction].length] : ''
   const gi = stage.k === 'play' ? stage.gi : 1
 
+  // Частичные табло обеих команд (по видимым шагам) и мини-счёт над дорожками.
+  const boards = ([0, 1] as const).map((team) =>
+    partialFrames(visSteps.filter((s) => s.team === team && !s.rolloff).map((s) => s.ev)),
+  )
+  const hud: [LaneHud, LaneHud] = [0, 1].map((lane) => {
+    const t = gi === 0 ? (lane as 0 | 1) : ((1 - lane) as 0 | 1)
+    return {
+      name: names[t],
+      score: stage.k === 'rolloff' ? String(roScore[t]) : String(boards[t].total),
+    }
+  }) as [LaneHud, LaneHud]
+  const benchGenders = cur ? lineups[cur.team].filter((p) => p.id !== cur.ev.playerId).map((p) => p.gender) : []
+
   return (
     <div className="space-y-3">
       {/* Шапка серии */}
@@ -413,25 +428,6 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
           {rolloff && (stage.k === 'done' ? <span> · Ролл-офф {rolloff.rounds[rolloff.rounds.length - 1].score.join(':')}</span> : null)}
         </div>
       )}
-
-      {/* Табло текущей игры */}
-      {stage.k === 'play' &&
-        ([0, 1] as const).map((team) => {
-          const board = partialFrames(visSteps.filter((s) => s.team === team).map((s) => s.ev))
-          return (
-            <TeamBoard
-              key={team}
-              name={names[team]}
-              laneNo={laneOf(team, stage.gi) === 0 ? '9' : '10'}
-              frames={board.frames}
-              total={board.total}
-              hcp={two.hcp[team]}
-              lineup={lineups[team]}
-              active={!!cur && cur.team === team}
-              activeFrame={cur && cur.team === team ? cur.ev.frame : null}
-            />
-          )
-        })}
 
       {/* Баннер смены дорожек */}
       {stage.k === 'between' && (
@@ -470,8 +466,119 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
         </div>
       )}
 
-      {/* Счёт ролл-оффа */}
-      {(stage.k === 'rolloff' || (stage.k === 'done' && rolloff)) && rolloff && (
+      {/* Игровой грид: табло/счёт слева, сцена справа (на мобиле сцена сверху) */}
+      {playing && cur && (stage.k === 'play' || stage.k === 'rolloff') && (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start">
+          <div className="order-2 space-y-3 lg:order-1">
+            {stage.k === 'play' &&
+              ([0, 1] as const).map((team) => (
+                <TeamBoard
+                  key={team}
+                  name={names[team]}
+                  laneNo={laneOf(team, gi) === 0 ? '9' : '10'}
+                  frames={boards[team].frames}
+                  total={boards[team].total}
+                  hcp={two.hcp[team]}
+                  lineup={lineups[team]}
+                  active={cur.team === team}
+                  activeFrame={cur.team === team ? cur.ev.frame : null}
+                />
+              ))}
+            {stage.k === 'rolloff' && rolloff && (
+              <div className="rounded-lg bg-slate-900 p-3">
+                <div className="text-center text-sm font-bold text-slate-300">
+                  Ролл-офф · {names[0]} <span className="text-2xl tabular-nums text-amber-400">{roScore[0]}</span>
+                  <span className="mx-1 text-slate-500">:</span>
+                  <span className="text-2xl tabular-nums text-amber-400">{roScore[1]}</span> {names[1]}
+                </div>
+                <div className="mt-2 space-y-0.5 text-xs text-slate-400">
+                  {rolloff.rounds.slice(0, fullRounds).map((r, i) => (
+                    <div key={i}>
+                      Р{i + 1}: {shortName(lineups[0][r.a.slot].name)} <b className="tabular-nums">{r.a.pins}</b> —{' '}
+                      <b className="tabular-nums">{r.b.pins}</b> {shortName(lineups[1][r.b.slot].name)}
+                      <span className="ml-2 text-slate-500">{r.score.join(':')}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="order-1 space-y-3 lg:order-2">
+            <div className="overflow-hidden rounded-lg bg-slate-900">
+              <DualLaneView
+                key={`${stage.k}-${gi}-${shown}`}
+                ev={cur.ev}
+                hand={playerOf(cur)?.hand ?? 'R'}
+                gender={playerOf(cur)?.gender ?? 'М'}
+                team={cur.team}
+                activeLane={cur.lane}
+                laneNumbers={['9', '10']}
+                laneHud={hud}
+                benchGenders={benchGenders}
+                speed={speed}
+                paused={paused}
+                reaction={cur.reaction}
+                benchMood={cur.benchMood}
+                onImpact={() => setImpacted(true)}
+              />
+              <div className="flex min-h-[4.5rem] items-center gap-3 border-t border-slate-800 p-3">
+                <PinDeck before={cur.ev.pinsBefore} after={impacted ? cur.ev.leaveAfter : cur.ev.pinsBefore} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-slate-500">
+                    {cur.rolloff ? `Ролл-офф · раунд ${cur.ev.frame}` : `Игра ${gi + 1} · фрейм ${cur.ev.frame}`} ·{' '}
+                    {names[cur.team]} · дор. {cur.lane === 0 ? '9' : '10'}
+                  </div>
+                  <div className="truncate font-bold">{playerOf(cur) ? capName(playerOf(cur)!.name) : ''}</div>
+                  <div className={`text-sm ${impacted ? throwTextClass(cur.ev) : 'text-slate-500'}`}>
+                    {impacted ? (cur.rolloff ? `сбито ${cur.ev.pinsDown}` : throwText(cur.ev)) : 'бросает…'}
+                  </div>
+                  {impacted && cur.reaction !== 'neutral' && (
+                    <div className="reaction-pop text-xs text-slate-400">{phrase}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-500">Скорость:</span>
+              {([1, 2] as const).map((sp) => (
+                <button
+                  key={sp}
+                  onClick={() => setSpeed(sp)}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                    speed === sp ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  ×{sp}
+                </button>
+              ))}
+              <button
+                onClick={() => setPaused((p) => !p)}
+                className={`pause-btn rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                  paused ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                {paused ? '▶ Дальше' : '⏸ Пауза'}
+              </button>
+              <button
+                onClick={() => {
+                  if (!steps) return
+                  setPaused(false)
+                  setShown(steps.length)
+                  setImpacted(true)
+                }}
+                className="skip-btn ml-auto rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-semibold text-slate-300 transition hover:bg-slate-700"
+              >
+                Пропустить ⏭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Полный счёт ролл-оффа в финале */}
+      {stage.k === 'done' && rolloff && (
         <div className="rounded-lg bg-slate-900 p-3">
           <div className="text-center text-sm font-bold text-slate-300">
             Ролл-офф · {names[0]} <span className="text-2xl tabular-nums text-amber-400">{roScore[0]}</span>
@@ -479,7 +586,7 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
             <span className="text-2xl tabular-nums text-amber-400">{roScore[1]}</span> {names[1]}
           </div>
           <div className="mt-2 space-y-0.5 text-xs text-slate-400">
-            {rolloff.rounds.slice(0, stage.k === 'done' ? rolloff.rounds.length : fullRounds).map((r, i) => (
+            {rolloff.rounds.map((r, i) => (
               <div key={i}>
                 Р{i + 1}: {shortName(lineups[0][r.a.slot].name)} <b className="tabular-nums">{r.a.pins}</b> —{' '}
                 <b className="tabular-nums">{r.b.pins}</b> {shortName(lineups[1][r.b.slot].name)}
@@ -488,68 +595,6 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
             ))}
           </div>
         </div>
-      )}
-
-      {/* Сцена + инфострока текущего броска */}
-      {playing && cur && stage.k !== 'done' && (
-        <>
-          <div className="overflow-hidden rounded-lg bg-slate-900">
-            <DualLaneView
-              key={`${stage.k}-${gi}-${shown}`}
-              ev={cur.ev}
-              hand={playerOf(cur)?.hand ?? 'R'}
-              gender={playerOf(cur)?.gender ?? 'М'}
-              team={cur.team}
-              activeLane={cur.lane}
-              laneNumbers={['9', '10']}
-              speed={speed}
-              reaction={cur.reaction}
-              benchMood={cur.benchMood}
-              onImpact={() => setImpacted(true)}
-            />
-            <div className="flex min-h-[4.5rem] items-center gap-3 border-t border-slate-800 p-3">
-              <PinDeck before={cur.ev.pinsBefore} after={impacted ? cur.ev.leaveAfter : cur.ev.pinsBefore} />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs text-slate-500">
-                  {cur.rolloff ? `Ролл-офф · раунд ${cur.ev.frame}` : `Игра ${gi + 1} · фрейм ${cur.ev.frame}`} ·{' '}
-                  {names[cur.team]} · дор. {cur.lane === 0 ? '9' : '10'}
-                </div>
-                <div className="truncate font-bold">{playerOf(cur) ? capName(playerOf(cur)!.name) : ''}</div>
-                <div className={`text-sm ${impacted ? throwTextClass(cur.ev) : 'text-slate-500'}`}>
-                  {impacted ? (cur.rolloff ? `сбито ${cur.ev.pinsDown}` : throwText(cur.ev)) : 'бросает…'}
-                </div>
-                {impacted && cur.reaction !== 'neutral' && (
-                  <div className="reaction-pop text-xs text-slate-400">{phrase}</div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-slate-500">Скорость:</span>
-            {([1, 2] as const).map((sp) => (
-              <button
-                key={sp}
-                onClick={() => setSpeed(sp)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
-                  speed === sp ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                ×{sp}
-              </button>
-            ))}
-            <button
-              onClick={() => {
-                if (!steps) return
-                setShown(steps.length)
-                setImpacted(true)
-              }}
-              className="skip-btn ml-auto rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-semibold text-slate-300 transition hover:bg-slate-700"
-            >
-              Пропустить ⏭
-            </button>
-          </div>
-        </>
       )}
 
       {/* Финал */}

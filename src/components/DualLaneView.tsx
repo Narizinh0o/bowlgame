@@ -95,6 +95,7 @@ function ballU(s: number, p: ThrowParams): number {
 }
 
 const TEAM_COLOR = ['#f59e0b', '#94a3b8']
+const NEUTRAL_COLOR = '#64748b'
 
 const REACTION_EMOJI: Record<Reaction, string> = {
   huge_joy: '🤩',
@@ -108,6 +109,11 @@ const REACTION_EMOJI: Record<Reaction, string> = {
 
 type Pose = 'throw' | 'idle' | Reaction
 
+export interface LaneHud {
+  name: string
+  score: string
+}
+
 interface Props {
   ev: ThrowEvent
   hand: string
@@ -115,7 +121,10 @@ interface Props {
   team: 0 | 1
   activeLane: 0 | 1
   laneNumbers: [string, string]
+  laneHud: [LaneHud, LaneHud] // мини-счёт над каждой дорожкой
+  benchGenders: string[] // пол четырёх запасных (реальные одноклубники)
   speed: 1 | 2
+  paused: boolean
   reaction: Reaction
   benchMood: BenchMood
   onImpact: () => void
@@ -128,7 +137,10 @@ export default function DualLaneView({
   team,
   activeLane,
   laneNumbers,
+  laneHud,
+  benchGenders,
   speed,
+  paused,
   reaction,
   benchMood,
   onImpact,
@@ -138,15 +150,25 @@ export default function DualLaneView({
   onImpactRef.current = onImpact
   const speedRef = useRef(speed)
   speedRef.current = speed
+  const pausedRef = useRef(paused)
+  pausedRef.current = paused
+  const hudRef = useRef(laneHud)
+  hudRef.current = laneHud
 
-  // Зрители: фиксированный рассадочный лист (цвета команд), не меняется между бросками.
+  // Зрители: ровно по 6 за каждую команду + 4 нейтральных, рассадка фиксированная.
   const spectators = useMemo(() => {
     const rng = mulberry32(424242)
-    const seats: { side: 0 | 1; row: number; col: number; team: 0 | 1; phase: number }[] = []
+    const teams: (0 | 1 | 2)[] = [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2]
+    for (let i = teams.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1))
+      ;[teams[i], teams[j]] = [teams[j], teams[i]]
+    }
+    const seats: { side: 0 | 1; row: number; col: number; team: 0 | 1 | 2; phase: number }[] = []
+    let k = 0
     for (const side of [0, 1] as const) {
       for (let row = 0; row < 2; row++) {
         for (let col = 0; col < 4; col++) {
-          seats.push({ side, row, col, team: rng() < 0.5 ? 0 : 1, phase: rng() * Math.PI * 2 })
+          seats.push({ side, row, col, team: teams[k++], phase: rng() * Math.PI * 2 })
         }
       }
     }
@@ -391,13 +413,13 @@ export default function DualLaneView({
       const bx = project(cx, params.u0, 0).x - sign * 22
       const by = Y0 + 16
 
-      // запасные на скамейке за спиной (с краю своей дорожки)
+      // запасные на скамейке за спиной — реальные одноклубники со своим полом
       const benchDir = activeLane === 0 ? -1 : 1
       const benchX = cx + benchDir * 78
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < Math.min(4, benchGenders.length); i++) {
         const mood: Pose = !inResult ? 'idle' : benchMood === 'faint' ? (i === 0 ? 'idle' : 'huge_sad') : benchMood
         const fainted = inResult && benchMood === 'faint' && i === 0
-        stickman(benchX + benchDir * i * 16, by + 14, 0.6, color, mood, t + i * 137, i % 2 === 1, fainted)
+        stickman(benchX + benchDir * i * 16, by + 14, 0.6, color, mood, t + i * 137, benchGenders[i] === 'Ж', fainted)
       }
 
       // шар
@@ -495,7 +517,7 @@ export default function DualLaneView({
         ctx.fillRect(lcx - HALF1 - 16, Y1 - 22, (HALF1 + 16) * 2, 26)
       }
 
-      // трибуны по бокам
+      // трибуны по бокам (6 за каждую команду + 4 нейтральных)
       const inResult = t >= tImpact + 150
       for (const seat of spectators) {
         const baseX = seat.side === 0 ? 10 : W - 42
@@ -506,10 +528,11 @@ export default function DualLaneView({
           ctx.fillRect(baseX - 6, y + 6, 44, 24)
           ctx.fillRect(baseX - 6 + 4, y + 32, 44, 24)
         }
+        const color = seat.team === 2 ? NEUTRAL_COLOR : TEAM_COLOR[seat.team]
         const cheering = inResult && cheerSide !== null && seat.team === cheerSide
         const wave = cheering ? Math.abs(Math.sin(t / 100 + seat.phase)) * 4 : 0
         const sy = y - wave
-        ctx.strokeStyle = TEAM_COLOR[seat.team]
+        ctx.strokeStyle = color
         ctx.lineWidth = 3.5
         if (cheering) {
           ctx.beginPath()
@@ -519,7 +542,7 @@ export default function DualLaneView({
           ctx.lineTo(x + 6, sy - 9)
           ctx.stroke()
         }
-        ctx.fillStyle = TEAM_COLOR[seat.team]
+        ctx.fillStyle = color
         ctx.beginPath()
         ctx.roundRect(x - 4.5, sy, 9, 8, 3)
         ctx.fill()
@@ -527,6 +550,16 @@ export default function DualLaneView({
         ctx.beginPath()
         ctx.arc(x, sy - 4, 3.4, 0, Math.PI * 2)
         ctx.fill()
+      }
+
+      // мини-счёт над каждой дорожкой
+      ctx.font = '600 10px Inter, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'alphabetic'
+      for (const li of [0, 1] as const) {
+        const hud = hudRef.current[li]
+        ctx.fillStyle = 'rgba(255,255,255,0.88)'
+        ctx.fillText(`${hud.name.slice(0, 12)} · ${hud.score}`, LANE_CX[li], Y1 - 32)
       }
     }
 
@@ -544,7 +577,7 @@ export default function DualLaneView({
     let last = performance.now()
     let impactSent = false
     const frame = (now: number) => {
-      acc += (now - last) * speedRef.current
+      if (!pausedRef.current) acc += (now - last) * speedRef.current
       last = now
       draw(acc)
       if (!impactSent && acc >= tImpact) {

@@ -19,11 +19,12 @@ export interface RatedPlayer extends RosterPlayer {
   rel: number // достоверность среднего: games/(games+12), 0..1
 }
 
-/** Игрок в конкретном матче: с редкостью и клубным бонусом. */
+/** Игрок в конкретном матче: с редкостью, клубным и левшинским бонусами. */
 export interface MatchPlayer extends RatedPlayer {
   rarity: Rarity
   clubBonus: number // 0 | 5 | 10 | 20
-  effRating: number // baseRating + rarity + clubBonus
+  leftyBonus: number // «EZ»: +10 / +5 / 0 / -5 / -10 (только у левшей)
+  effRating: number // baseRating + rarity + clubBonus + leftyBonus
   skill: number // effRating - r80 ростера; вход ВСЕХ вероятностей
   vol: number // волатильность новичка: 1 - rel
 }

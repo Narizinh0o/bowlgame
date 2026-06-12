@@ -1,6 +1,6 @@
 import type { RatedPlayer, Rarity } from './types'
-import { POOL_RARITIES, POOL_SIZE, RARITY_BONUS } from './constants'
-import { clubBonuses } from './rating'
+import { LEFTY_BONUS_BASE, POOL_RARITIES, POOL_SIZE, RARITY_BONUS } from './constants'
+import { clubBonuses, leftyBonuses } from './rating'
 import type { Rng } from './rng'
 
 /** Выбранный в драфте игрок: ростер + редкость слота пула. */
@@ -16,6 +16,12 @@ export interface PoolSlot extends Picked {
 /** Рейтинг для показа в карточке: база + редкость (клубный бонус добавляется при расстановке). */
 export function displayRating(p: Picked): number {
   return p.player.baseRating + RARITY_BONUS[p.rarity]
+}
+
+/** Рейтинг в карточке ПУЛА: одинокий левша показывается с полным «EZ +10».
+ *  Реальный бонус пересчитается по составу (второй левша срежет до +5 и т.д.). */
+export function poolRating(p: Picked): number {
+  return displayRating(p) + (p.player.hand === 'L' ? LEFTY_BONUS_BASE : 0)
 }
 
 function shuffle<T>(items: readonly T[], rng: Rng): T[] {
@@ -39,12 +45,13 @@ export function buildPool(players: RatedPlayer[], rng: Rng): PoolSlot[] {
   return chosen.map((player, i) => ({ player, rarity: rarities[i], pickedBy: null }))
 }
 
-/** Ценность состава: рейтинги с редкостями + клубная синергия + ценность гандикапа
- *  за девушек (+2 очка игры ≈ +1 пункт рейтинга по калибровке симуляции). */
+/** Ценность состава: рейтинги с редкостями + клубная синергия + бонусы левшей «EZ»
+ *  + ценность гандикапа за девушек (+2 очка игры ≈ +1 пункт рейтинга по калибровке). */
 function teamValue(picks: Picked[]): number {
-  const bonuses = clubBonuses(picks.map((p) => p.player))
+  const clubs = clubBonuses(picks.map((p) => p.player))
+  const lefty = leftyBonuses(picks.map((p) => p.player))
   return picks.reduce(
-    (s, p, i) => s + displayRating(p) + bonuses[i] + (p.player.gender === 'Ж' ? 1 : 0),
+    (s, p, i) => s + displayRating(p) + clubs[i] + lefty[i] + (p.player.gender === 'Ж' ? 1 : 0),
     0,
   )
 }

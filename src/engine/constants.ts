@@ -28,6 +28,11 @@ export const CLUB_BONUS: Record<number, number> = { 3: 5, 4: 10, 5: 20 }
 /** Гандикап: +2 очка к ИТОГУ ИГРЫ за каждую девушку в пятёрке (5 девушек = +10). */
 export const FEMALE_GAME_HCP = 2
 
+/** Бонус левши «EZ»: одинокому левше +10 рейтинга, за каждого следующего левшу
+ *  в пятёрке −5 каждому левше (2 левши → +5, 3 → 0, 4 → −5, 5 → −10). */
+export const LEFTY_BONUS_BASE = 10
+export const LEFTY_BONUS_STEP = 5
+
 /** Страйк: P = STRIKE_BASE + STRIKE_GAIN * tanh(skill / STRIKE_SCALE), асимптота 90%. */
 export const STRIKE_BASE = 0.5
 export const STRIKE_GAIN = 0.4

@@ -12,6 +12,7 @@ import path from 'node:path'
 import {
   aiRolloffStart,
   buildRatedRoster,
+  leftyBonuses,
   displayCoef,
   mulberry32,
   playBakerGame,
@@ -52,7 +53,7 @@ console.log('=== Скоринг (юнит-проверки) ===')
 function syntheticPlayer(skill: number, vol = 0, hand: 'R' | 'L' = 'R'): MatchPlayer {
   return {
     id: 0, name: 'bot', gender: 'М', hand, club: '—', avg: 0, games: 999,
-    baseRating: 0, rel: 1 - vol, rarity: 'common', clubBonus: 0,
+    baseRating: 0, rel: 1 - vol, rarity: 'common', clubBonus: 0, leftyBonus: 0,
     effRating: 0, skill, vol,
   }
 }
@@ -211,6 +212,15 @@ console.log('\n=== Реальный ростер ===')
     'teamHcp: 3 девушки = +6',
   )
   check(teamHcp(Array(5).fill({ gender: 'Ж' })) === 10, 'teamHcp: 5 девушек = +10')
+
+  // Бонусы левшей «EZ»: +10 / +5 / 0 / -5 / -10 каждому левше.
+  const hands = (hs: string[]) => hs.map((hand) => ({ hand }))
+  check(leftyBonuses(hands(['R', 'R', 'R', 'R', 'L']))[4] === 10, 'EZ: одинокий левша +10')
+  check(leftyBonuses(hands(['L', 'L', 'R', 'R', 'R']))[0] === 5, 'EZ: два левши +5 каждому')
+  check(leftyBonuses(hands(['L', 'L', 'L', 'R', 'R']))[0] === 0, 'EZ: три левши 0')
+  check(leftyBonuses(hands(['L', 'L', 'L', 'L', 'R']))[0] === -5, 'EZ: четыре левши -5')
+  check(leftyBonuses(hands(['L', 'L', 'L', 'L', 'L']))[0] === -10, 'EZ: пять левшей -10')
+  check(leftyBonuses(hands(['R', 'L', 'R', 'R', 'R']))[0] === 0, 'EZ: правшам бонус не положен')
 
   const mAll = byRating.filter((p) => p.gender === 'М')
   const startM = Math.max(0, Math.floor(mAll.length / 2) - 2)

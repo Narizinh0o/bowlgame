@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { clubBonuses, displayRating, teamHcp, type Picked } from '../engine'
-import { RARITY_CARD, RARITY_LABEL, RARITY_TEXT, capName, genderHand } from './ui'
+import { clubBonuses, displayRating, leftyBonuses, teamHcp, type Picked } from '../engine'
+import { EZ_BADGE, RARITY_CARD, RARITY_LABEL, RARITY_TEXT, capName, genderSymbol } from './ui'
 
 interface Props {
   title: string
@@ -14,6 +14,8 @@ export default function ArrangeScreen({ title, picks, doneLabel, onDone }: Props
   const [sel, setSel] = useState<number | null>(null)
 
   const bonuses = clubBonuses(order.map((p) => p.player))
+  const lefty = leftyBonuses(order.map((p) => p.player))
+  const lefties = order.filter((p) => p.player.hand === 'L').length
   const synergyClubs = new Map<string, number>()
   for (const p of order) {
     if (p.player.club !== '—') synergyClubs.set(p.player.club, (synergyClubs.get(p.player.club) ?? 0) + 1)
@@ -50,6 +52,16 @@ export default function ArrangeScreen({ title, picks, doneLabel, onDone }: Props
           Гандикап за девушек: <b className="text-slate-100">+{teamHcp(order.map((p) => p.player))}</b> к итогу игры
         </div>
       )}
+      {lefties > 0 && (
+        <div className="mt-2 rounded-lg border border-red-500/30 bg-slate-900 p-2 text-sm text-slate-300">
+          <span className={EZ_BADGE}>EZ</span> Левши ×{lefties}:{' '}
+          <b className={lefty.find((b) => b !== 0)! >= 0 ? 'text-red-300' : 'text-slate-400'}>
+            {lefty.find((b) => b !== 0)! > 0 ? '+' : ''}
+            {lefty.find((b) => b !== 0)}
+          </b>{' '}
+          к рейтингу каждому левше
+        </div>
+      )}
 
       <div className="mt-3 grid gap-2">
         {order.map((p, i) => (
@@ -72,13 +84,26 @@ export default function ArrangeScreen({ title, picks, doneLabel, onDone }: Props
               <div className="truncate text-sm font-semibold">{capName(p.player.name)}</div>
               <div className="truncate text-xs text-slate-400">
                 {p.player.club}
-                {genderHand(p.player) && ` · ${genderHand(p.player)}`}
+                {genderSymbol(p.player) && ` · ${genderSymbol(p.player)}`}
+                {p.player.hand === 'L' && (
+                  <>
+                    {' '}
+                    <span className={EZ_BADGE}>EZ</span>
+                  </>
+                )}
               </div>
             </div>
             <div className="shrink-0 text-right">
               <div className="text-lg font-extrabold tabular-nums">
                 {displayRating(p)}
                 {bonuses[i] > 0 && <span className="text-sm text-emerald-400"> +{bonuses[i]}</span>}
+                {lefty[i] !== 0 && (
+                  <span className={`text-sm ${lefty[i] > 0 ? 'text-red-400' : 'text-slate-500'}`}>
+                    {' '}
+                    {lefty[i] > 0 ? '+' : ''}
+                    {lefty[i]}
+                  </span>
+                )}
               </div>
               {p.rarity !== 'common' && (
                 <div className={`text-[10px] font-bold ${RARITY_TEXT[p.rarity]}`}>{RARITY_LABEL[p.rarity]}</div>

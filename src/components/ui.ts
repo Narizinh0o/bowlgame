@@ -32,9 +32,10 @@ export function shortName(name: string): string {
   return capName(name.split(' ')[0])
 }
 
-/** Подпись пола/руки: правша — норма, не подписываем; левша — изюминка. */
-export function genderHand(p: { gender: string; hand: string }): string {
-  const g = p.gender === 'Ж' ? '♀' : p.gender === 'М' ? '♂' : ''
-  const h = p.hand === 'L' ? 'левша' : ''
-  return [g, h].filter(Boolean).join(' · ')
+/** Символ пола (левша помечается отдельным бейджем «EZ»). */
+export function genderSymbol(p: { gender: string }): string {
+  return p.gender === 'Ж' ? '♀' : p.gender === 'М' ? '♂' : ''
 }
+
+/** Классы красного мини-бейджа «EZ» для левшей. */
+export const EZ_BADGE = 'rounded bg-red-500/15 px-1 text-[9px] font-black text-red-400'

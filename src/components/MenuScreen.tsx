@@ -9,7 +9,7 @@ export default function MenuScreen({ count, onStart }: Props) {
       <div className="text-5xl">🎳</div>
       <h1 className="mt-2 text-3xl font-extrabold text-amber-400">КЛБ Боулинг-Батл</h1>
       <p className="mt-3 text-slate-300">
-        Задрафти пятёрку из реальных игроков КЛБ, расставь по фреймам и выиграй матч по системе Бейкера.
+        Задрафти пятёрку из реальных игроков КЛБ, расставь по фреймам и выиграй матч по беккеру.
       </p>
       <div className="mt-8 grid gap-3">
         <button
