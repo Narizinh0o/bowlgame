@@ -3,11 +3,13 @@ import {
   clubBonuses,
   displayRating,
   eventBonusFor,
+  eventBonusList,
   leftyBonuses,
   teamHcp,
   type MatchEvent,
   type Picked,
 } from '../engine'
+import Breakdown, { hasBreakdown } from './Breakdown'
 import { EZ_BADGE, RARITY_CARD, RARITY_LABEL, RARITY_TEXT, capName, genderSymbol } from './ui'
 
 interface Props {
@@ -103,26 +105,20 @@ export default function ArrangeScreen({ title, picks, events, doneLabel, onDone 
               </div>
             </div>
             <div className="shrink-0 text-right">
-              <div className="text-lg font-extrabold tabular-nums">
-                {displayRating(p)}
-                {bonuses[i] > 0 && <span className="text-sm text-emerald-400"> +{bonuses[i]}</span>}
-                {lefty[i] !== 0 && (
-                  <span className={`text-sm ${lefty[i] > 0 ? 'text-red-400' : 'text-slate-500'}`}>
-                    {' '}
-                    {lefty[i] > 0 ? '+' : ''}
-                    {lefty[i]}
-                  </span>
-                )}
-                {eventBonusFor(events, p.player) !== 0 && (
-                  <span
-                    className={`text-sm ${eventBonusFor(events, p.player) > 0 ? 'text-sky-300' : 'text-slate-500'}`}
-                  >
-                    {' '}
-                    {eventBonusFor(events, p.player) > 0 ? '+' : ''}
-                    {eventBonusFor(events, p.player)}
-                  </span>
-                )}
+              <div className="text-lg font-extrabold leading-none tabular-nums">
+                {displayRating(p) + bonuses[i] + lefty[i] + eventBonusFor(events, p.player)}
               </div>
+              {hasBreakdown(p.rarity, lefty[i], bonuses[i], eventBonusList(events, p.player)) && (
+                <div className="text-[9px] leading-tight">
+                  <Breakdown
+                    base={p.player.baseRating}
+                    rarity={p.rarity}
+                    ez={lefty[i]}
+                    club={bonuses[i]}
+                    eventsList={eventBonusList(events, p.player)}
+                  />
+                </div>
+              )}
               {p.rarity !== 'common' && (
                 <div className={`text-[10px] font-bold ${RARITY_TEXT[p.rarity]}`}>{RARITY_LABEL[p.rarity]}</div>
               )}

@@ -634,7 +634,17 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
           </div>
 
           <div className="order-1 space-y-3 lg:order-2">
-            <div className="overflow-hidden rounded-lg bg-slate-900">
+            <div className="relative overflow-hidden rounded-lg bg-slate-900">
+              {/* Вспышка-фотка после желоба (public/assets/gutter.png; нет файла — ничего) */}
+              {impacted && cur.ev.pinsDown === 0 && cur.ev.leaveAfter.length === 10 && (
+                <img
+                  key={`gutter-${stage.k}-${gi}-${shown}`}
+                  src="/assets/gutter.png"
+                  alt=""
+                  onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+                  className="gutter-flash pointer-events-none absolute left-1/2 top-[30%] z-10 w-28 rounded-lg shadow-2xl md:w-36"
+                />
+              )}
               <DualLaneView
                 key={`${stage.k}-${gi}-${shown}`}
                 ev={cur.ev}

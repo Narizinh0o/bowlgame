@@ -79,13 +79,18 @@ export function rollMatchEvents(clubs: string[], rng: Rng): MatchEvent[] {
   return [...clubEvents, ...events]
 }
 
+/** Список событийных вкладов игрока (каждое сработавшее событие — отдельным числом). */
+export function eventBonusList(events: MatchEvent[], p: { club: string; hand: string }): number[] {
+  const out: number[] = []
+  for (const e of events) {
+    if (e.kind === 'all') out.push(e.bonus)
+    else if (e.kind === 'hand' && p.hand === e.hand) out.push(e.bonus)
+    else if (e.kind === 'club' && p.club === e.club) out.push(e.bonus)
+  }
+  return out
+}
+
 /** Суммарный событийный бонус игрока. */
 export function eventBonusFor(events: MatchEvent[], p: { club: string; hand: string }): number {
-  let sum = 0
-  for (const e of events) {
-    if (e.kind === 'all') sum += e.bonus
-    else if (e.kind === 'hand' && p.hand === e.hand) sum += e.bonus
-    else if (e.kind === 'club' && p.club === e.club) sum += e.bonus
-  }
-  return sum
+  return eventBonusList(events, p).reduce((s, v) => s + v, 0)
 }

@@ -1,7 +1,10 @@
 import {
   CLUB_BONUS,
+  clubBonuses,
   displayRating,
   eventBonusFor,
+  eventBonusList,
+  LEFTY_BONUS_BASE,
   leftyBonuses,
   poolRating,
   teamHcp,
@@ -9,6 +12,7 @@ import {
   type Picked,
   type PoolSlot,
 } from '../engine'
+import Breakdown, { hasBreakdown } from './Breakdown'
 import { EZ_BADGE, RARITY_CARD, RARITY_LABEL, RARITY_TEXT, capName, genderSymbol, shortName } from './ui'
 
 interface Props {
@@ -43,6 +47,7 @@ function TeamPanel({
 }) {
   const syn = [...clubCounts(picks).entries()].filter(([, n]) => n >= 2)
   const lefty = leftyBonuses(picks.map((p) => p.player))
+  const clubsNow = clubBonuses(picks.map((p) => p.player))
   const lefties = picks.filter((p) => p.player.hand === 'L').length
   return (
     <div className={`rounded-lg border p-2 ${active ? 'border-amber-400/70 bg-slate-900' : 'border-slate-700 bg-slate-900/50'}`}>
@@ -57,12 +62,16 @@ function TeamPanel({
       </div>
       <div className="mt-1 flex min-h-[1.6rem] flex-wrap gap-1">
         {picks.map((p, i) => {
-          const totalNow = displayRating(p) + lefty[i] + eventBonusFor(events, p.player)
+          const evList = eventBonusList(events, p.player)
+          const totalNow = displayRating(p) + clubsNow[i] + lefty[i] + eventBonusFor(events, p.player)
           return (
             <span key={p.player.id} className={`rounded border px-1.5 py-0.5 text-xs ${RARITY_CARD[p.rarity]}`}>
               {shortName(p.player.name)} <b className="tabular-nums">{totalNow}</b>
-              {totalNow !== displayRating(p) && (
-                <span className="text-[10px] text-slate-500 tabular-nums"> ({displayRating(p)})</span>
+              {hasBreakdown(p.rarity, lefty[i], clubsNow[i], evList) && (
+                <span className="text-[10px]">
+                  {' '}
+                  (<Breakdown base={p.player.baseRating} rarity={p.rarity} ez={lefty[i]} club={clubsNow[i]} eventsList={evList} />)
+                </span>
               )}
               {p.player.hand === 'L' && <span className={`ml-0.5 ${EZ_BADGE}`}>EZ</span>}
             </span>
@@ -148,16 +157,19 @@ export default function DraftScreen({ pool, names, tags, turn, first, events, ai
                   <span className="block text-lg font-extrabold leading-none tabular-nums">
                     {poolRating(s, events)}
                   </span>
-                  {poolRating(s, events) !== displayRating(s) && (
-                    <span className="block text-[9px] leading-tight text-slate-500 tabular-nums">
-                      {displayRating(s)}
-                      {s.player.hand === 'L' && <span className="text-red-400">+10</span>}
-                      {eventBonusFor(events, s.player) !== 0 && (
-                        <span className={eventBonusFor(events, s.player) > 0 ? 'text-sky-300' : 'text-red-300'}>
-                          {eventBonusFor(events, s.player) > 0 ? '+' : ''}
-                          {eventBonusFor(events, s.player)}
-                        </span>
-                      )}
+                  {hasBreakdown(
+                    s.rarity,
+                    s.player.hand === 'L' ? LEFTY_BONUS_BASE : 0,
+                    0,
+                    eventBonusList(events, s.player),
+                  ) && (
+                    <span className="block text-[9px] leading-tight">
+                      <Breakdown
+                        base={s.player.baseRating}
+                        rarity={s.rarity}
+                        ez={s.player.hand === 'L' ? LEFTY_BONUS_BASE : 0}
+                        eventsList={eventBonusList(events, s.player)}
+                      />
                     </span>
                   )}
                 </span>

@@ -38,3 +38,28 @@ body {
     pop-in 0.45s ease-out both,
     wiggle 0.45s ease-in-out 0.45s 3;
 }
+
+/* Вспышка-фотка после желоба: быстро появилась, повисела, растаяла (~2.2с) */
+@keyframes gutter-flash {
+  0% {
+    transform: translate(-50%, 0) rotate(-9deg) scale(0.2);
+    opacity: 0;
+  }
+  12% {
+    transform: translate(-50%, 0) rotate(-6deg) scale(1.1);
+    opacity: 1;
+  }
+  20% {
+    transform: translate(-50%, 0) rotate(-6deg) scale(1);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, 0) rotate(-4deg) scale(1.05);
+    opacity: 0;
+  }
+}
+.gutter-flash {
+  animation: gutter-flash 2.2s ease-out forwards;
+}
