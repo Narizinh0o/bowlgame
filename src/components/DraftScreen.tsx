@@ -128,6 +128,44 @@ export default function DraftScreen({ pool, names, tags, turn, first, events, ai
         </div>
       )}
 
+      <details className="mb-2 rounded-lg border border-slate-700 bg-slate-900 p-2">
+        <summary className="cursor-pointer text-xs font-bold text-slate-300">
+          ❓ Как считается рейтинг (все бонусы)
+        </summary>
+        <div className="mt-1 space-y-0.5 text-[11px] leading-snug text-slate-300">
+          <div>
+            • <b className="text-sky-300">Редкость</b> (случайно в драфте):{' '}
+            <span className="text-sky-300">редкий +3</span>, <span className="text-violet-300">эпический +8</span>,{' '}
+            <span className="text-amber-300">легендарный +15</span>
+          </div>
+          <div>
+            • <b className="text-red-400">EZ — левша</b>: +10, но за каждого следующего левшу в команде −5 каждому
+            левше (2 левши → +5, 3 → 0, 4 → −5)
+          </div>
+          <div>
+            • <b className="text-emerald-400">Клуб</b>: 3 одноклубника в пятёрке → +5 каждому из них, 4 → +10, 5 → +20
+          </div>
+          <div>
+            • <b className="text-sky-300">События матча</b>: список выше, действуют весь матч
+          </div>
+          <div>
+            • <b className="text-slate-100">Дорожки</b>: каждой случайно от −10 до +10 каждому, кто на ней играет.
+            Узнаете после расстановки — подписи на дорожках; в игре 2 команды меняются дорожками
+          </div>
+          <div>
+            • <b className="text-slate-100">♀</b>: +2 очка к итогу каждой игры за каждую девушку (к рейтингу не
+            добавляется)
+          </div>
+          <div className="text-slate-500">
+            Раскладка в карточке: <span className="text-slate-400">база</span>
+            <span className="text-sky-300">+редкость</span>
+            <span className="text-red-400">+EZ</span>
+            <span className="text-emerald-400">+клуб</span>
+            <span className="text-sky-300">+события</span>
+          </div>
+        </div>
+      </details>
+
       <div className="grid gap-2 md:grid-cols-2">
         <TeamPanel label={names[0]} picks={picksA} active={turn === 0} events={events} />
         <TeamPanel label={names[1]} picks={picksB} active={turn === 1} events={events} />
