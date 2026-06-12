@@ -634,18 +634,20 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
           </div>
 
           <div className="order-1 space-y-3 lg:order-2">
-            <div className="relative overflow-hidden rounded-lg bg-slate-900">
-              {/* Вспышка-фотка после желоба (public/assets/gutter.png; нет файла — ничего) */}
-              {impacted && cur.ev.pinsDown === 0 && cur.ev.leaveAfter.length === 10 && (
-                <img
-                  key={`gutter-${stage.k}-${gi}-${shown}`}
-                  src="/assets/gutter.png"
-                  alt=""
-                  onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
-                  className="gutter-flash pointer-events-none absolute left-1/2 top-[30%] z-10 w-28 rounded-lg shadow-2xl md:w-36"
-                />
-              )}
-              <DualLaneView
+            <div className="overflow-hidden rounded-lg bg-slate-900">
+              <div className="relative">
+                {/* Вспышка-фотка на ~1с поверх дорожки, где улетели в желоб (только 1-й бросок) */}
+                {impacted && cur.ev.pinsDown === 0 && cur.ev.leaveAfter.length === 10 && (
+                  <img
+                    key={`gutter-${stage.k}-${gi}-${shown}`}
+                    src="/assets/gutter.jpg"
+                    alt=""
+                    onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+                    className="gutter-flash pointer-events-none absolute top-[12%] z-10 h-[72%] w-[30%] rounded-md border-2 border-slate-100/60 object-cover shadow-2xl"
+                    style={{ left: cur.lane === 0 ? '26.7%' : '73.3%' }}
+                  />
+                )}
+                <DualLaneView
                 key={`${stage.k}-${gi}-${shown}`}
                 ev={cur.ev}
                 hand={playerOf(cur)?.hand ?? 'R'}
@@ -667,6 +669,7 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
                 benchMood={cur.benchMood}
                 onImpact={() => setImpacted(true)}
               />
+              </div>
               <div className="flex min-h-[4.5rem] items-center gap-3 border-t border-slate-800 p-3">
                 <PinDeck before={cur.ev.pinsBefore} after={impacted ? cur.ev.leaveAfter : cur.ev.pinsBefore} />
                 <div className="min-w-0 flex-1">

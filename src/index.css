@@ -39,27 +39,27 @@ body {
     wiggle 0.45s ease-in-out 0.45s 3;
 }
 
-/* Вспышка-фотка после желоба: быстро появилась, повисела, растаяла (~2.2с) */
+/* Вспышка-фотка после желоба: быстрый кадр на ~1 секунду поверх дорожки */
 @keyframes gutter-flash {
   0% {
-    transform: translate(-50%, 0) rotate(-9deg) scale(0.2);
+    transform: translate(-50%, 0) rotate(-7deg) scale(0.25);
     opacity: 0;
   }
-  12% {
-    transform: translate(-50%, 0) rotate(-6deg) scale(1.1);
+  10% {
+    transform: translate(-50%, 0) rotate(-4deg) scale(1.07);
     opacity: 1;
   }
-  20% {
-    transform: translate(-50%, 0) rotate(-6deg) scale(1);
+  16% {
+    transform: translate(-50%, 0) rotate(-4deg) scale(1);
   }
-  75% {
+  82% {
     opacity: 1;
   }
   100% {
-    transform: translate(-50%, 0) rotate(-4deg) scale(1.05);
+    transform: translate(-50%, 0) rotate(-3deg) scale(1.03);
     opacity: 0;
   }
 }
 .gutter-flash {
-  animation: gutter-flash 2.2s ease-out forwards;
+  animation: gutter-flash 1.05s ease-out forwards;
 }
