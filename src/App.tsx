@@ -6,10 +6,8 @@ import {
   buildPool,
   buildRatedRoster,
   mulberry32,
-  playMatch,
   randomSeed,
   type MatchPlayer,
-  type MatchResult,
   type Picked,
   type PoolSlot,
   type RatedRoster,
@@ -24,7 +22,7 @@ type Screen =
   | { s: 'menu' }
   | { s: 'draft' }
   | { s: 'arrange'; who: 0 | 1 }
-  | { s: 'match'; lineups: [MatchPlayer[], MatchPlayer[]]; result: MatchResult }
+  | { s: 'match'; lineups: [MatchPlayer[], MatchPlayer[]] }
 
 export default function App() {
   const [rated, setRated] = useState<RatedRoster | null>(null)
@@ -84,8 +82,7 @@ export default function App() {
   const startMatch = (oA: Picked[], oB: Picked[]) => {
     if (!rated) return
     const lineups: [MatchPlayer[], MatchPlayer[]] = [buildLineup(oA, rated.r80), buildLineup(oB, rated.r80)]
-    const result = playMatch(lineups[0], lineups[1], mulberry32(randomSeed()))
-    setScreen({ s: 'match', lineups, result })
+    setScreen({ s: 'match', lineups })
   }
 
   const onArranged = (order: Picked[]) => {
@@ -141,7 +138,7 @@ export default function App() {
         <MatchScreen
           names={names}
           lineups={screen.lineups}
-          result={screen.result}
+          mode={mode}
           onNewDraft={() => startDraft(mode)}
           onMenu={() => setScreen({ s: 'menu' })}
         />

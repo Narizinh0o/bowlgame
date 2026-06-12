@@ -1,21 +1,26 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  aiRolloffStart,
   mulberry32,
+  pickWeighted,
+  playRolloff,
+  playTwoGames,
   randomSeed,
   reactionFor,
   scoreGame,
+  type BakerGame,
   type FrameScore,
   type MatchPlayer,
-  type MatchResult,
   type Reaction,
+  type RolloffResult,
   type ThrowEvent,
 } from '../engine'
-import LaneView from './LaneView'
+import DualLaneView, { type BenchMood } from './DualLaneView'
 import PinDeck from './PinDeck'
 import { capName, shortName } from './ui'
 
-/** Покадровый «авто-бой» (этап 4): команды бросают по очереди, табло заполняется на глазах,
- *  игрок реагирует на свой бросок. Анимация дорожки — этап 5. */
+/** Серия «ТВ-финала»: 2 игры со сменой дорожек (№9/№10), очко за игру,
+ *  при равенстве — ролл-офф до 3 очков с выбором стартового игрока. */
 
 const KIND_RU: Record<string, string> = {
   single: 'одна кегля',
@@ -52,7 +57,6 @@ function throwTextClass(e: ThrowEvent): string {
   return 'text-slate-300'
 }
 
-/** Символы бросков фрейма: X / – и цифры, с учётом «свежих» расстановок 10-го фрейма. */
 function frameSymbols(throws: number[], isTenth: boolean): string[] {
   return throws.map((t, j) => {
     const digit = t === 0 ? '–' : String(t)
@@ -64,14 +68,12 @@ function frameSymbols(throws: number[], isTenth: boolean): string[] {
   })
 }
 
-/** Завершён ли фрейм по сыгранным броскам. */
 function frameDone(throws: number[], isTenth: boolean): boolean {
   if (!isTenth) return throws[0] === 10 || throws.length >= 2
   const bonus = throws[0] === 10 || (throws.length >= 2 && throws[0] + throws[1] === 10)
   return throws.length >= (bonus ? 3 : 2)
 }
 
-/** Частичное табло по показанным событиям: несыгранные фреймы — null. */
 function partialFrames(shownEvents: ThrowEvent[]): { frames: (FrameScore | null)[]; total: number } {
   const byFrame: number[][] = []
   for (const e of shownEvents) {
@@ -106,31 +108,33 @@ function FrameCell({ frame, isTenth, active }: { frame: FrameScore | null; isTen
 
 function TeamBoard({
   name,
+  laneNo,
   frames,
   total,
   hcp,
   lineup,
   active,
   activeFrame,
-  won,
 }: {
   name: string
+  laneNo: string
   frames: (FrameScore | null)[]
   total: number
   hcp: number
   lineup: MatchPlayer[]
   active: boolean
   activeFrame: number | null
-  won: boolean
 }) {
   return (
-    <div className={`rounded-lg bg-slate-900 p-3 ${won ? 'ring-1 ring-amber-400/70' : active ? 'ring-1 ring-slate-500/60' : ''}`}>
+    <div className={`rounded-lg bg-slate-900 p-3 ${active ? 'ring-1 ring-slate-500/60' : ''}`}>
       <div className="mb-2 flex items-baseline justify-between">
-        <span className={`font-bold ${active || won ? 'text-amber-400' : 'text-slate-300'}`}>
+        <span className={`font-bold ${active ? 'text-amber-400' : 'text-slate-300'}`}>
           {name}
-          {won && ' 🏆'}
+          <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-xs font-semibold text-slate-400">
+            дор. {laneNo}
+          </span>
           {hcp > 0 && (
-            <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-xs font-semibold text-slate-300">
+            <span className="ml-1 rounded bg-slate-800 px-1.5 py-0.5 text-xs font-semibold text-slate-300">
               ♀ +{hcp}
             </span>
           )}
@@ -158,115 +162,361 @@ interface Step {
   team: 0 | 1
   ev: ThrowEvent
   reaction: Reaction
-  isExtra: boolean
+  lane: 0 | 1
+  benchMood: BenchMood
+  rolloff: boolean
 }
+
+/** Дорожка команды в игре: игра 1 — А на левой (№9), игра 2 и ролл-офф — наоборот. */
+const laneOf = (team: 0 | 1, gi: 0 | 1): 0 | 1 => (gi === 0 ? team : ((1 - team) as 0 | 1))
+
+function gameMood(ev: ThrowEvent): BenchMood {
+  if (ev.isStrike) return 'huge_joy'
+  if (ev.isSpare) {
+    const hard = ev.leaveKind && ['split', 'washout', 'wild', 'gutter'].includes(ev.leaveKind)
+    return hard ? 'huge_joy' : 'joy'
+  }
+  if (ev.pinsBefore.length === 10) {
+    if (ev.leaveKind === 'gutter') return 'huge_sad'
+    if (ev.leaveKind && ['split', 'washout', 'wild'].includes(ev.leaveKind)) return 'sad'
+    return 'idle'
+  }
+  if (ev.pinsDown === 0 && ev.pinsBefore.length >= 3) return 'huge_sad'
+  const hard = ev.leaveKind && ['split', 'washout', 'wild', 'gutter'].includes(ev.leaveKind)
+  return hard ? 'idle' : 'sad'
+}
+
+function rolloffReaction(pins: number, rng: () => number): Reaction {
+  const table: [Reaction, number][] =
+    pins === 10
+      ? [
+          ['huge_joy', 60],
+          ['cocky', 25],
+          ['joy', 15],
+        ]
+      : pins === 9
+        ? [
+            ['joy', 60],
+            ['huge_joy', 20],
+            ['neutral', 20],
+          ]
+        : pins >= 8
+          ? [
+              ['neutral', 55],
+              ['sad', 30],
+              ['stone_face', 15],
+            ]
+          : pins >= 6
+            ? [
+                ['sad', 45],
+                ['huge_sad', 30],
+                ['stone_face', 25],
+              ]
+            : [
+                ['huge_sad', 50],
+                ['stone_face', 30],
+                ['sad', 20],
+              ]
+  return pickWeighted(table, (x) => x[1], rng)[0]
+}
+
+type Stage = { k: 'play'; gi: 0 | 1 } | { k: 'between' } | { k: 'pick'; who: 0 | 1 } | { k: 'rolloff' } | { k: 'done' }
 
 interface Props {
   names: [string, string]
   lineups: [MatchPlayer[], MatchPlayer[]]
-  result: MatchResult
+  mode: 'ai' | 'hotseat'
   onNewDraft: () => void
   onMenu: () => void
 }
 
-export default function MatchScreen({ names, lineups, result, onNewDraft, onMenu }: Props) {
-  // Порядок показа: фрейм 1 команды А, фрейм 1 команды Б, фрейм 2 А... затем sudden death.
-  const steps = useMemo<Step[]>(() => {
+export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }: Props) {
+  const rngRef = useRef(mulberry32(randomSeed()))
+  const two = useMemo(() => playTwoGames(lineups[0], lineups[1], rngRef.current), [lineups])
+
+  const gameSteps = useMemo<[Step[], Step[]]>(() => {
     const rng = mulberry32(randomSeed())
-    const list: Step[] = []
-    for (let f = 1; f <= 10; f++) {
-      for (const team of [0, 1] as const) {
-        const game = team === 0 ? result.gameA : result.gameB
-        for (const ev of game.events.filter((e) => e.frame === f)) {
-          list.push({ team, ev, reaction: reactionFor(ev, rng), isExtra: false })
+    const build = (gi: 0 | 1): Step[] => {
+      const list: Step[] = []
+      for (let f = 1; f <= 10; f++) {
+        for (const team of [0, 1] as const) {
+          const game = team === 0 ? two.g[gi].a : two.g[gi].b
+          for (const ev of game.events.filter((e) => e.frame === f)) {
+            list.push({
+              team,
+              ev,
+              reaction: reactionFor(ev, rng),
+              lane: laneOf(team, gi),
+              benchMood: gameMood(ev),
+              rolloff: false,
+            })
+          }
         }
       }
+      return list
     }
-    for (const ex of result.extra) {
-      for (const ev of ex.a.events) list.push({ team: 0, ev, reaction: reactionFor(ev, rng), isExtra: true })
-      for (const ev of ex.b.events) list.push({ team: 1, ev, reaction: reactionFor(ev, rng), isExtra: true })
+    return [build(0), build(1)]
+  }, [two])
+
+  const [rolloff, setRolloff] = useState<RolloffResult | null>(null)
+  const [startA, setStartA] = useState<number | null>(null)
+  const [stage, setStage] = useState<Stage>({ k: 'play', gi: 0 })
+  const [shown, setShown] = useState(1)
+  const [impacted, setImpacted] = useState(false)
+  const [speed, setSpeed] = useState<1 | 2>(1)
+
+  const rolloffSteps = useMemo<Step[]>(() => {
+    if (!rolloff) return []
+    const rng = mulberry32(randomSeed())
+    const list: Step[] = []
+    for (const round of rolloff.rounds) {
+      for (const team of [0, 1] as const) {
+        const th = team === 0 ? round.a : round.b
+        list.push({
+          team,
+          ev: th.ev,
+          reaction: rolloffReaction(th.pins, rng),
+          lane: laneOf(team, 1),
+          benchMood: th.pins <= 5 ? 'faint' : gameMood(th.ev) === 'idle' && th.pins < 9 ? 'sad' : gameMood(th.ev),
+          rolloff: true,
+        })
+      }
     }
     return list
-  }, [result])
+  }, [rolloff])
 
-  const [shown, setShown] = useState(1) // сколько шагов уже видно
-  const [speed, setSpeed] = useState<1 | 2>(1)
-  const [impacted, setImpacted] = useState(false) // шар дошёл до кеглей (результат виден)
-  const done = shown >= steps.length
-  const cur = steps[Math.min(shown, steps.length) - 1]
+  const steps = stage.k === 'play' ? gameSteps[stage.gi] : stage.k === 'rolloff' ? rolloffSteps : null
+  const playing = steps !== null && steps.length > 0
+  const cur = playing ? steps[Math.min(shown, steps.length) - 1] : null
 
-  useEffect(() => {
+  const advance = () => {
+    setShown(1)
     setImpacted(false)
-  }, [shown])
+    if (stage.k === 'play' && stage.gi === 0) {
+      setStage({ k: 'between' })
+    } else if (stage.k === 'play' && stage.gi === 1) {
+      setStage(two.tied ? { k: 'pick', who: 0 } : { k: 'done' })
+    } else if (stage.k === 'rolloff') {
+      setStage({ k: 'done' })
+    }
+  }
 
-  // Фолбэк: если rAF замер (фоновая вкладка) — матч не зависает.
+  // Фолбэк: rAF замер в фоновой вкладке — не зависаем.
   useEffect(() => {
-    if (done || impacted) return
+    if (!playing || impacted) return
     const t = setTimeout(() => setImpacted(true), 4500 / speed)
     return () => clearTimeout(t)
-  }, [shown, impacted, done, speed])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown, impacted, speed, stage])
 
-  // Следующий бросок — после паузы на результат и реакцию.
+  // После показа результата — следующий бросок или следующая фаза.
   useEffect(() => {
-    if (done || !impacted) return
-    const r = cur.reaction
+    if (!playing || !impacted || !cur) return
     let delay = 1500
-    if (r === 'huge_joy' || r === 'huge_sad' || r === 'stone_face') delay += 450
-    const t = setTimeout(() => setShown((s) => s + 1), delay / speed)
+    if (cur.reaction === 'huge_joy' || cur.reaction === 'huge_sad' || cur.reaction === 'stone_face') delay += 450
+    if (cur.rolloff) delay += 250
+    const t = setTimeout(() => {
+      if (steps && shown < steps.length) {
+        setImpacted(false)
+        setShown((s) => s + 1)
+      } else {
+        advance()
+      }
+    }, delay / speed)
     return () => clearTimeout(t)
-  }, [impacted, done, speed, cur])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [impacted, speed, shown, stage])
 
-  const shownSteps = steps.slice(0, shown)
-  const boards = ([0, 1] as const).map((team) =>
-    partialFrames(shownSteps.filter((s) => s.team === team && !s.isExtra).map((s) => s.ev)),
-  )
+  // Баннер смены дорожек.
+  useEffect(() => {
+    if (stage.k !== 'between') return
+    const t = setTimeout(() => {
+      setStage({ k: 'play', gi: 1 })
+      setShown(1)
+      setImpacted(false)
+    }, 2800 / speed)
+    return () => clearTimeout(t)
+  }, [stage, speed])
 
-  const player = lineups[cur.team].find((p) => p.id === cur.ev.playerId)
-  const phrase =
-    REACTION_PHRASES[cur.reaction][(shown - 1) % REACTION_PHRASES[cur.reaction].length]
-  const { finalTotals, hcp } = result
+  const handlePick = (slot: number) => {
+    if (stage.k !== 'pick') return
+    if (mode === 'ai') {
+      const ro = playRolloff(lineups[0], lineups[1], slot, aiRolloffStart(lineups[1]), rngRef.current)
+      setStartA(slot)
+      setRolloff(ro)
+      setStage({ k: 'rolloff' })
+      setShown(1)
+      setImpacted(false)
+    } else if (stage.who === 0) {
+      setStartA(slot)
+      setStage({ k: 'pick', who: 1 })
+    } else {
+      const ro = playRolloff(lineups[0], lineups[1], startA ?? 0, slot, rngRef.current)
+      setRolloff(ro)
+      setStage({ k: 'rolloff' })
+      setShown(1)
+      setImpacted(false)
+    }
+  }
+
+  // Видимые шаги: текущий бросок попадает на табло только после падения кеглей.
+  const visCount = playing ? (impacted ? shown : shown - 1) : 0
+  const visSteps = playing && steps ? steps.slice(0, visCount) : []
+
+  const pointsAfterG1: [number, number] =
+    two.finals[0][0] > two.finals[0][1] ? [1, 0] : two.finals[0][1] > two.finals[0][0] ? [0, 1] : [0.5, 0.5]
+  const visPoints: [number, number] =
+    stage.k === 'play' && stage.gi === 0 ? [0, 0] : stage.k === 'between' || (stage.k === 'play' && stage.gi === 1) ? pointsAfterG1 : two.points
+
+  const fmtPts = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(1))
+
+  const fullRounds =
+    stage.k === 'done' && rolloff
+      ? rolloff.rounds.length
+      : stage.k === 'rolloff'
+        ? Math.floor(visCount / 2)
+        : 0
+  const roScore: [number, number] =
+    rolloff && fullRounds > 0 ? rolloff.rounds[Math.min(fullRounds, rolloff.rounds.length) - 1].score : [0, 0]
+
+  const winner: 0 | 1 = two.tied ? (rolloff ? rolloff.winner : 0) : two.points[0] > two.points[1] ? 0 : 1
+  const playerOf = (s: Step) => lineups[s.team].find((p) => p.id === s.ev.playerId)
+  const phrase = cur ? REACTION_PHRASES[cur.reaction][(shown - 1) % REACTION_PHRASES[cur.reaction].length] : ''
+  const gi = stage.k === 'play' ? stage.gi : 1
 
   return (
     <div className="space-y-3">
-      {([0, 1] as const).map((team) => (
-        <TeamBoard
-          key={team}
-          name={names[team]}
-          frames={boards[team].frames}
-          total={done ? finalTotals[team] : boards[team].total}
-          hcp={hcp[team]}
-          lineup={lineups[team]}
-          active={!done && cur.team === team}
-          activeFrame={!done && cur.team === team && !cur.isExtra ? cur.ev.frame : null}
-          won={done && result.winner === team}
-        />
-      ))}
+      {/* Шапка серии */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-900 px-3 py-2">
+        <span className="text-sm font-bold">
+          Серия: <span className="text-amber-400">{names[0]}</span>{' '}
+          <span className="text-xl tabular-nums">{fmtPts(visPoints[0])}</span>
+          <span className="mx-1 text-slate-500">:</span>
+          <span className="text-xl tabular-nums">{fmtPts(visPoints[1])}</span>{' '}
+          <span className="text-slate-300">{names[1]}</span>
+        </span>
+        <span className="text-xs text-slate-400">
+          {stage.k === 'play' && `Игра ${stage.gi + 1} из 2`}
+          {stage.k === 'between' && 'Смена дорожек'}
+          {(stage.k === 'pick' || stage.k === 'rolloff') && 'РОЛЛ-ОФФ до 3 очков'}
+          {stage.k === 'done' && 'Матч окончен'}
+        </span>
+      </div>
 
-      {!done && (
+      {/* Строка завершённой игры 1 */}
+      {(stage.k === 'between' || (stage.k === 'play' && stage.gi === 1) || stage.k === 'pick' || stage.k === 'rolloff' || stage.k === 'done') && (
+        <div className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-slate-400">
+          Игра 1: {two.finals[0][0]}:{two.finals[0][1]}
+          {stage.k === 'done' || stage.k === 'pick' || stage.k === 'rolloff' ? (
+            <span> · Игра 2: {two.finals[1][0]}:{two.finals[1][1]}</span>
+          ) : null}
+          {rolloff && (stage.k === 'done' ? <span> · Ролл-офф {rolloff.rounds[rolloff.rounds.length - 1].score.join(':')}</span> : null)}
+        </div>
+      )}
+
+      {/* Табло текущей игры */}
+      {stage.k === 'play' &&
+        ([0, 1] as const).map((team) => {
+          const board = partialFrames(visSteps.filter((s) => s.team === team).map((s) => s.ev))
+          return (
+            <TeamBoard
+              key={team}
+              name={names[team]}
+              laneNo={laneOf(team, stage.gi) === 0 ? '9' : '10'}
+              frames={board.frames}
+              total={board.total}
+              hcp={two.hcp[team]}
+              lineup={lineups[team]}
+              active={!!cur && cur.team === team}
+              activeFrame={cur && cur.team === team ? cur.ev.frame : null}
+            />
+          )
+        })}
+
+      {/* Баннер смены дорожек */}
+      {stage.k === 'between' && (
+        <div className="rounded-lg bg-slate-900 p-6 text-center">
+          <div className="text-2xl font-extrabold text-amber-400">Игра 2 — смена дорожек!</div>
+          <div className="mt-2 text-sm text-slate-300">
+            {names[0]} переходит на дорожку №10, {names[1]} — на №9
+          </div>
+        </div>
+      )}
+
+      {/* Выбор стартового игрока ролл-оффа */}
+      {stage.k === 'pick' && (
+        <div className="rounded-lg bg-slate-900 p-4">
+          <div className="text-lg font-extrabold text-amber-400">Ничья {fmtPts(two.points[0])}:{fmtPts(two.points[1])} — ролл-офф!</div>
+          <p className="mt-1 text-sm text-slate-300">
+            {names[stage.who]}: выбери, кто бросает первым. Дальше — по порядку слотов (выбрал 3-го → 3-4-5-1-2).
+            По одному броску в полный комплект: сбил больше — очко, ничья — очко обоим. До 3 очков.
+          </p>
+          <div className="mt-3 grid gap-2">
+            {lineups[stage.who].map((p, slot) => (
+              <button
+                key={p.id}
+                onClick={() => handlePick(slot)}
+                className="pick-btn flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-800/60 p-2 text-left transition hover:border-amber-400/70"
+              >
+                <span className="w-6 text-center text-lg font-extrabold text-amber-400">{slot + 1}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold">{capName(p.name)}</span>
+                <span className="text-xs text-slate-400">
+                  очередь: {[0, 1, 2, 3, 4].map((i) => ((slot + i) % 5) + 1).join('-')}
+                </span>
+                <span className="text-lg font-extrabold tabular-nums">{p.effRating}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Счёт ролл-оффа */}
+      {(stage.k === 'rolloff' || (stage.k === 'done' && rolloff)) && rolloff && (
+        <div className="rounded-lg bg-slate-900 p-3">
+          <div className="text-center text-sm font-bold text-slate-300">
+            Ролл-офф · {names[0]} <span className="text-2xl tabular-nums text-amber-400">{roScore[0]}</span>
+            <span className="mx-1 text-slate-500">:</span>
+            <span className="text-2xl tabular-nums text-amber-400">{roScore[1]}</span> {names[1]}
+          </div>
+          <div className="mt-2 space-y-0.5 text-xs text-slate-400">
+            {rolloff.rounds.slice(0, stage.k === 'done' ? rolloff.rounds.length : fullRounds).map((r, i) => (
+              <div key={i}>
+                Р{i + 1}: {shortName(lineups[0][r.a.slot].name)} <b className="tabular-nums">{r.a.pins}</b> —{' '}
+                <b className="tabular-nums">{r.b.pins}</b> {shortName(lineups[1][r.b.slot].name)}
+                <span className="ml-2 text-slate-500">{r.score.join(':')}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Сцена + инфострока текущего броска */}
+      {playing && cur && stage.k !== 'done' && (
         <>
           <div className="overflow-hidden rounded-lg bg-slate-900">
-            <div className="mx-auto max-w-[540px]">
-              <LaneView
-                key={shown}
-                ev={cur.ev}
-                hand={player?.hand ?? 'R'}
-                gender={player?.gender ?? 'М'}
-                team={cur.team}
-                speed={speed}
-                reaction={cur.reaction}
-                onImpact={() => setImpacted(true)}
-              />
-            </div>
+            <DualLaneView
+              key={`${stage.k}-${gi}-${shown}`}
+              ev={cur.ev}
+              hand={playerOf(cur)?.hand ?? 'R'}
+              gender={playerOf(cur)?.gender ?? 'М'}
+              team={cur.team}
+              activeLane={cur.lane}
+              laneNumbers={['9', '10']}
+              speed={speed}
+              reaction={cur.reaction}
+              benchMood={cur.benchMood}
+              onImpact={() => setImpacted(true)}
+            />
             <div className="flex min-h-[4.5rem] items-center gap-3 border-t border-slate-800 p-3">
               <PinDeck before={cur.ev.pinsBefore} after={impacted ? cur.ev.leaveAfter : cur.ev.pinsBefore} />
               <div className="min-w-0 flex-1">
                 <div className="text-xs text-slate-500">
-                  Фрейм {cur.ev.frame}
-                  {cur.isExtra && ' · SUDDEN DEATH'} · {names[cur.team]}
+                  {cur.rolloff ? `Ролл-офф · раунд ${cur.ev.frame}` : `Игра ${gi + 1} · фрейм ${cur.ev.frame}`} ·{' '}
+                  {names[cur.team]} · дор. {cur.lane === 0 ? '9' : '10'}
                 </div>
-                <div className="truncate font-bold">{player ? capName(player.name) : ''}</div>
+                <div className="truncate font-bold">{playerOf(cur) ? capName(playerOf(cur)!.name) : ''}</div>
                 <div className={`text-sm ${impacted ? throwTextClass(cur.ev) : 'text-slate-500'}`}>
-                  {impacted ? throwText(cur.ev) : 'бросает…'}
+                  {impacted ? (cur.rolloff ? `сбито ${cur.ev.pinsDown}` : throwText(cur.ev)) : 'бросает…'}
                 </div>
                 {impacted && cur.reaction !== 'neutral' && (
                   <div className="reaction-pop text-xs text-slate-400">{phrase}</div>
@@ -289,7 +539,11 @@ export default function MatchScreen({ names, lineups, result, onNewDraft, onMenu
               </button>
             ))}
             <button
-              onClick={() => setShown(steps.length)}
+              onClick={() => {
+                if (!steps) return
+                setShown(steps.length)
+                setImpacted(true)
+              }}
               className="skip-btn ml-auto rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-semibold text-slate-300 transition hover:bg-slate-700"
             >
               Пропустить ⏭
@@ -298,49 +552,77 @@ export default function MatchScreen({ names, lineups, result, onNewDraft, onMenu
         </>
       )}
 
-      {done && (
+      {/* Финал */}
+      {stage.k === 'done' && (
         <>
+          {([0, 1] as const).map((team) => {
+            const board = partialFrames((team === 0 ? two.g[1].a : two.g[1].b).events)
+            return (
+              <TeamBoard
+                key={team}
+                name={names[team]}
+                laneNo={laneOf(team, 1) === 0 ? '9' : '10'}
+                frames={board.frames}
+                total={two.finals[1][team]}
+                hcp={two.hcp[team]}
+                lineup={lineups[team]}
+                active={false}
+                activeFrame={null}
+              />
+            )
+          })}
           <div className="rounded-lg bg-slate-900 p-4 text-center">
             <div className="text-xl font-extrabold">
-              🏆 Победил <span className="text-amber-400">{names[result.winner]}</span>{' '}
+              🏆 Серию выиграл <span className="text-amber-400">{names[winner]}</span>{' '}
               <span className="tabular-nums">
-                {finalTotals[0]}:{finalTotals[1]}
+                {fmtPts(two.points[0])}:{fmtPts(two.points[1])}
               </span>
+              {rolloff && (
+                <span className="text-amber-400">
+                  {' '}
+                  · ролл-офф <span className="tabular-nums">{rolloff.rounds[rolloff.rounds.length - 1].score.join(':')}</span>
+                </span>
+              )}
             </div>
-            {(hcp[0] > 0 || hcp[1] > 0) && (
+            <div className="mt-1 text-sm text-slate-400">
+              Игра 1: {two.finals[0][0]}:{two.finals[0][1]} · Игра 2: {two.finals[1][0]}:{two.finals[1][1]}
+              {(two.hcp[0] > 0 || two.hcp[1] > 0) && (
+                <span> · гандикап ♀ +{two.hcp[0]} : +{two.hcp[1]} (в каждой игре)</span>
+              )}
+            </div>
+            {rolloff && (
               <div className="mt-1 text-sm text-slate-400">
-                Кегли {result.gameA.total}:{result.gameB.total} · гандикап ♀ +{hcp[0]} : +{hcp[1]}
-              </div>
-            )}
-            {result.extra.length > 0 && (
-              <div className="mt-1 text-sm text-slate-400">
-                Ничья в основное время — судьбу решил sudden death (
-                {result.extra.map((ex) => `${ex.a.pins}:${ex.b.pins}`).join(', ')})
+                Ролл-офф: {rolloff.rounds[rolloff.rounds.length - 1].score.join(':')} (стартовали слоты{' '}
+                {rolloff.start[0] + 1} и {rolloff.start[1] + 1})
               </div>
             )}
           </div>
 
           <details className="rounded-lg bg-slate-900 p-3 text-sm">
             <summary className="cursor-pointer font-semibold text-slate-300">Лог бросков</summary>
-            <div className="mt-2 grid gap-x-6 gap-y-1 md:grid-cols-2">
-              {([0, 1] as const).map((team) => {
-                const game = team === 0 ? result.gameA : result.gameB
-                return (
-                  <div key={team}>
-                    <div className="mb-1 font-semibold text-amber-400">{names[team]}</div>
-                    {game.events.map((e, i) => {
-                      const pl = lineups[team].find((p) => p.id === e.playerId)
-                      return (
-                        <div key={i} className="text-slate-400">
-                          <span className="text-slate-500">Ф{e.frame}</span> {pl ? shortName(pl.name) : ''}:{' '}
-                          {throwText(e)}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })}
-            </div>
+            {([0, 1] as const).map((gIdx) => (
+              <div key={gIdx} className="mt-2 grid gap-x-6 gap-y-1 md:grid-cols-2">
+                {([0, 1] as const).map((team) => {
+                  const game: BakerGame = team === 0 ? two.g[gIdx].a : two.g[gIdx].b
+                  return (
+                    <div key={team}>
+                      <div className="mb-1 font-semibold text-amber-400">
+                        Игра {gIdx + 1} · {names[team]}
+                      </div>
+                      {game.events.map((e, i) => {
+                        const pl = lineups[team].find((p) => p.id === e.playerId)
+                        return (
+                          <div key={i} className="text-slate-400">
+                            <span className="text-slate-500">Ф{e.frame}</span> {pl ? shortName(pl.name) : ''}:{' '}
+                            {throwText(e)}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
           </details>
 
           <div className="flex gap-2">

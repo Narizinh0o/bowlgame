@@ -10,11 +10,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  aiRolloffStart,
   buildRatedRoster,
   displayCoef,
   mulberry32,
   playBakerGame,
   playMatch,
+  playRolloff,
+  playTwoGames,
   scoreGame,
   teamHcp,
   toMatchPlayer,
@@ -218,6 +221,37 @@ console.log('\n=== Реальный ростер ===')
   for (let i = 0; i < 3000; i++) if (playMatch(midF, midM, rngH).winner === 0) fWins++
   console.log(`гандикап ♀ +10 у зеркальной команды: винрейт ${(fWins / 30).toFixed(1)}% (ожидание ~60%)`)
   check(fWins / 3000 > 0.55, 'гандикап +10 должен давать ощутимое преимущество')
+
+  // ---------- 7. Серия из 2 игр + ролл-офф (формат ТВ-финала) ----------
+  {
+    // aiRolloffStart: сильнейшая тройка подряд
+    const fake = [50, 60, 90, 80, 70].map((r, i) => ({ ...midM[i], effRating: r }))
+    check(aiRolloffStart(fake) === 2, 'aiRolloffStart: старт с сильнейшей тройки (слот 3)')
+
+    const rngS = mulberry32(77)
+    const N = 2000
+    let rolloffs = 0
+    for (let i = 0; i < N; i++) {
+      const two = playTwoGames(mid5, midM, rngS)
+      const ptsSum = two.points[0] + two.points[1]
+      check(Math.abs(ptsSum - 2) < 1e-9, 'очки серии всегда в сумме 2')
+      if (two.tied) rolloffs++
+    }
+    console.log(`серии, дошедшие до ролл-оффа: ${((100 * rolloffs) / N).toFixed(1)}%`)
+
+    const rngR = mulberry32(88)
+    for (let i = 0; i < 500; i++) {
+      const ro = playRolloff(mid5, midM, 2, 4, rngR)
+      const last = ro.rounds[ro.rounds.length - 1].score
+      check(ro.rounds.length >= 3, 'ролл-офф: минимум 3 раунда')
+      check(Math.max(last[0], last[1]) >= 3 && last[0] !== last[1], 'ролл-офф: конец при 3+ с перевесом')
+      ro.rounds.forEach((r, j) => {
+        check(r.a.slot === (2 + j) % 5, 'ролл-офф: очерёдность слотов A (3-4-5-1-2)')
+        check(r.b.slot === (4 + j) % 5, 'ролл-офф: очерёдность слотов B (5-1-2-3-4)')
+      })
+    }
+    console.log('ролл-офф: очерёдность, минимум раундов и условие победы ок (500 прогонов)')
+  }
 }
 
 console.log(failed ? '\n!!! ЕСТЬ ПРОВАЛЕННЫЕ ПРОВЕРКИ' : '\nвсе проверки пройдены')
