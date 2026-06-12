@@ -132,6 +132,7 @@ interface Props {
   laneNumbers: [string, string]
   laneHud: [LaneHud, LaneHud] // мини-счёт над каждой дорожкой
   laneLabels: [string, string] // «хорошая/плохая/обычная дорожка +N»
+  laneBonus: [number, number] // числа дорожек — для цвета подписи
   benchGenders: string[] // пол четырёх запасных (реальные одноклубники)
   oppBenchGenders: string[] // пол всей пятёрки соперника (сидят за своей дорожкой)
   bowlerRating: number // итоговый рейтинг бросающего с учётом дорожки
@@ -153,6 +154,7 @@ export default function DualLaneView({
   laneNumbers,
   laneHud,
   laneLabels,
+  laneBonus,
   benchGenders,
   oppBenchGenders,
   bowlerRating,
@@ -414,10 +416,11 @@ export default function DualLaneView({
         ctx.fillText(hud.line.length > 34 ? '…' + hud.line.slice(-33) : hud.line, lcx, topY - 6)
       }
 
-      // вердикт дорожки («хорошая/плохая/обычная») — на настиле
-      ctx.fillStyle = 'rgba(255,255,255,0.38)'
-      ctx.font = 'italic 600 9px Inter, sans-serif'
-      ctx.fillText(laneLabels[laneIdx], lcx, project(lcx, 0, 0.45).y)
+      // вердикт дорожки — сразу под кеглями, на верху настила; цвет по знаку
+      const lb = laneBonus[laneIdx]
+      ctx.fillStyle = lb > 0 ? 'rgba(74,222,128,0.85)' : lb < 0 ? 'rgba(248,113,113,0.9)' : 'rgba(255,255,255,0.6)'
+      ctx.font = 'italic 600 8.5px Inter, sans-serif'
+      ctx.fillText(laneLabels[laneIdx], lcx, topY + 45)
 
       // кегли
       for (const pin of DRAW_ORDER) {

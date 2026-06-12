@@ -194,10 +194,24 @@ const SHOUTS_COCKY: [string, string][] = [
   ['как и планировал', 'как и планировала'],
   ['изи', 'изи'],
 ]
-const SHOUTS_BENCH_STRIKE = ['КРАСАВА!', 'МОЩЬ!', 'ВОТ ТАК НАДО!']
+const SHOUTS_CURSE = ['Б***!', 'ДА НУ ***!', 'Ё-МОЁ!', 'ДА БЛИН!']
+const SHOUTS_BENCH_STRIKE = ['ЛЕГЕНДА!', 'КРАСАВА!', 'МОЩЬ!', 'ВОТ ТАК НАДО!']
+const SHOUTS_BENCH_SINGLE = ['ЛЕГЕНДА!', 'СНАЙПЕР!', 'НУ КРАСИВО ЖЕ!']
 const SHOUTS_OPP_EYEROLL = ['🙄 как обычно', '🙄 ну конечно']
 
 const pickOf = <T,>(arr: T[], rng: () => number): T => arr[Math.floor(rng() * arr.length)]
+
+/** Едкое замечание скамейки соперников (редкое, по контексту провала). */
+function snideFor(ev: ThrowEvent, rng: () => number): string | null {
+  const full = ev.pinsBefore.length === 10
+  if (!full && !ev.isSpare && ev.pinsBefore.length === 1) {
+    return pickOf(['🙄 даже я бы добил', 'одну кеглю... 😏'], rng)
+  }
+  if (full && ev.pinsDown === 0 && ev.leaveAfter.length === 10) return 'это что сейчас было? 😏'
+  if (full && !ev.isStrike && ev.leaveKind === 'split') return 'классика 😏'
+  if (!full && !ev.isSpare) return 'ну-ну 😏'
+  return null
+}
 
 /** Дорожка команды в игре: игра 1 — А на левой (№9), игра 2 и ролл-офф — наоборот. */
 const laneOf = (team: 0 | 1, gi: 0 | 1): 0 | 1 => (gi === 0 ? team : ((1 - team) as 0 | 1))
@@ -298,21 +312,36 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
     const ours = ev.brooklyn && ev.isStrike && (player?.club ?? '') === 'brooklyn bowl'
     const female = player?.gender === 'Ж'
 
+    const missedSpare = !full && !ev.isSpare
+    const badLeave = full && !ev.isStrike && ['split', 'washout', 'gutter', 'wild'].includes(ev.leaveKind ?? '')
+    const singleSpared = !full && ev.isSpare && ev.pinsBefore.length === 1
+
+    // Своя сторона: либо игрок, либо его скамейка (одно облако).
     const resultBubbles: Bubble[] = []
-    if (ours) resultBubbles.push({ text: 'БРУКЛИН НАШ!', from: 'bench' })
+    if (ours) {
+      resultBubbles.push({ text: 'БРУКЛИН НАШ!', from: 'bench' })
+    } else if (missedSpare && rng() < 0.35) {
+      resultBubbles.push({ text: pickOf(SHOUTS_CURSE, rng), from: 'player' })
+    } else if (badLeave && rng() < 0.25) {
+      resultBubbles.push({ text: pickOf(SHOUTS_CURSE, rng), from: 'player' })
+    } else if (reaction === 'huge_joy' && rng() < 0.6) {
+      resultBubbles.push({ text: pickOf(SHOUTS_HUGE_JOY, rng), from: 'player' })
+    } else if (reaction === 'huge_sad' && rng() < 0.6) {
+      resultBubbles.push({ text: pickOf(SHOUTS_HUGE_SAD, rng), from: 'player' })
+    } else if (reaction === 'cocky' && rng() < 0.5) {
+      resultBubbles.push({ text: pickOf(SHOUTS_COCKY, rng)[female ? 1 : 0], from: 'player' })
+    } else if (singleSpared && rng() < 0.3) {
+      resultBubbles.push({ text: pickOf(SHOUTS_BENCH_SINGLE, rng), from: 'bench' })
+    } else if (ev.isStrike && rng() < 0.3) {
+      resultBubbles.push({ text: pickOf(SHOUTS_BENCH_STRIKE, rng), from: 'bench' })
+    }
+
+    // Скамейка соперников: закатывает глаза на бруклин-страйк, изредка ехидничает.
     if (ev.brooklyn && ev.isStrike && rng() < 0.5) {
       resultBubbles.push({ text: pickOf(SHOUTS_OPP_EYEROLL, rng), from: 'opp' })
-    }
-    if (!ours) {
-      if (reaction === 'huge_joy' && rng() < 0.6) {
-        resultBubbles.push({ text: pickOf(SHOUTS_HUGE_JOY, rng), from: 'player' })
-      } else if (reaction === 'huge_sad' && rng() < 0.6) {
-        resultBubbles.push({ text: pickOf(SHOUTS_HUGE_SAD, rng), from: 'player' })
-      } else if (reaction === 'cocky' && rng() < 0.5) {
-        resultBubbles.push({ text: pickOf(SHOUTS_COCKY, rng)[female ? 1 : 0], from: 'player' })
-      } else if (ev.isStrike && rng() < 0.25) {
-        resultBubbles.push({ text: pickOf(SHOUTS_BENCH_STRIKE, rng), from: 'bench' })
-      }
+    } else {
+      const snide = snideFor(ev, rng)
+      if (snide && rng() < 0.07) resultBubbles.push({ text: snide, from: 'opp' })
     }
 
     return {
@@ -616,6 +645,7 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
                 laneNumbers={['9', '10']}
                 laneHud={hud}
                 laneLabels={laneLabels}
+                laneBonus={laneBonus}
                 benchGenders={benchGenders}
                 oppBenchGenders={lineups[(1 - cur.team) as 0 | 1].map((p) => p.gender)}
                 bowlerRating={(playerOf(cur)?.effRating ?? 0) + laneBonus[cur.lane]}
