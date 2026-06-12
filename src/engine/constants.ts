@@ -38,6 +38,30 @@ export const STRIKE_BASE = 0.5
 export const STRIKE_GAIN = 0.4
 export const STRIKE_SCALE = 37
 
+/** Бруклин: P = BROOKLYN_BASE - BROOKLYN_GAIN * tanh(skill/BROOKLYN_SCALE), мин. 2%.
+ *  Страйк с бруклина менее вероятен: множитель к шансу страйка. */
+export const BROOKLYN_BASE = 0.08
+export const BROOKLYN_GAIN = 0.05
+export const BROOKLYN_SCALE = 40
+export const BROOKLYN_MIN = 0.02
+export const BROOKLYN_STRIKE_FACTOR = 0.75
+
+/** Случайный рейтинг дорожек: каждой из пары -LANE_BONUS_MAX..+LANE_BONUS_MAX
+ *  к рейтингу каждого играющего на ней (применяется по играм, в т.ч. в ролл-оффе). */
+export const LANE_BONUS_MAX = 10
+
+/** Случайные события матча (генерятся перед драфтом, 3..7 штук). */
+export const EVENTS_MIN = 3
+export const EVENTS_MAX = 7
+export const EVENT_CLUB_BONUS = 7 // «клуб разобрался с программой масла»
+export const EVENT_HEAT_P = 0.33 // «не работает охлаждение»: -5 всем
+export const EVENT_MACHINE_P = 0.2 // «машинка»: 50/50 починили +5 / сломалась -5
+export const EVENT_ALL_DELTA = 5
+export const EVENT_HAND_EDGE_P = 0.12 // «залили край»: -5 каждому левше/правше
+export const EVENT_HAND_EDGE = -5
+export const EVENT_HAND_ZONE_P = 0.12 // «зона 10 досок»: +7 (не вместе с краем)
+export const EVENT_HAND_ZONE = 7
+
 /** Веса категорий первого броска при skill=0 (страйк задаётся отдельно формулой). */
 export const CAT_WEIGHTS = {
   single: 25.5,

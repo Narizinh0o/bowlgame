@@ -2,6 +2,11 @@ import type { LeaveDef, LeaveKind, MatchPlayer } from './types'
 import {
   BAD_GAIN,
   BAD_SCALE,
+  BROOKLYN_BASE,
+  BROOKLYN_GAIN,
+  BROOKLYN_MIN,
+  BROOKLYN_SCALE,
+  BROOKLYN_STRIKE_FACTOR,
   CAT_WEIGHTS,
   CONV_CAP,
   CONV_GAIN,
@@ -44,10 +49,20 @@ export interface FirstThrowResult {
   kind: LeaveKind | null // null при страйке
   leave: number[] // стоящие кегли (пусто при страйке)
   convP: number // базовый шанс добоя этого лива (без модификаторов)
+  brooklyn: boolean // шар зашёл с другой стороны головы (1-2 у правши)
+}
+
+/** Шанс бруклина: чем выше скилл, тем стабильнее шар держит карман. */
+export function brooklynP(p: MatchPlayer): number {
+  return Math.max(BROOKLYN_MIN, BROOKLYN_BASE - BROOKLYN_GAIN * Math.tanh(p.skill / BROOKLYN_SCALE))
 }
 
 export function rollFirstThrow(p: MatchPlayer, rng: Rng): FirstThrowResult {
-  if (rng() < strikeP(p)) return { strike: true, kind: null, leave: [], convP: 0 }
+  const brooklyn = rng() < brooklynP(p)
+  // Бруклин-страйк случается, но реже карманного.
+  if (rng() < strikeP(p) * (brooklyn ? BROOKLYN_STRIKE_FACTOR : 1)) {
+    return { strike: true, kind: null, leave: [], convP: 0, brooklyn }
+  }
 
   const bm = badMult(p)
   const cats: { kind: LeaveKind; w: number }[] = [
@@ -60,11 +75,14 @@ export function rollFirstThrow(p: MatchPlayer, rng: Rng): FirstThrowResult {
   ]
   const cat = pickWeighted(cats, (c) => c.w, rng).kind
 
-  if (cat === 'gutter') return { strike: false, kind: 'gutter', leave: [...ALL_PINS], convP: -1 }
+  // В желобе бруклина не бывает — шар вообще не дошёл до кеглей.
+  if (cat === 'gutter') return { strike: false, kind: 'gutter', leave: [...ALL_PINS], convP: -1, brooklyn: false }
 
   const def: LeaveDef = pickWeighted(LEAVE_TABLES[cat], (d) => d.w, rng)
-  const pins = p.hand === 'L' ? mirrorPins(def.pins) : [...def.pins]
-  return { strike: false, kind: cat, leave: pins, convP: def.convP }
+  // Бруклин бьёт с другой стороны — картина ливов зеркалится относительно руки.
+  const mirrored = brooklyn ? p.hand !== 'L' : p.hand === 'L'
+  const pins = mirrored ? mirrorPins(def.pins) : [...def.pins]
+  return { strike: false, kind: cat, leave: pins, convP: def.convP, brooklyn }
 }
 
 export interface SecondThrowResult {

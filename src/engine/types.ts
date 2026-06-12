@@ -19,12 +19,13 @@ export interface RatedPlayer extends RosterPlayer {
   rel: number // достоверность среднего: games/(games+12), 0..1
 }
 
-/** Игрок в конкретном матче: с редкостью, клубным и левшинским бонусами. */
+/** Игрок в конкретном матче: с редкостью, клубным, левшинским и событийным бонусами. */
 export interface MatchPlayer extends RatedPlayer {
   rarity: Rarity
   clubBonus: number // 0 | 5 | 10 | 20
   leftyBonus: number // «EZ»: +10 / +5 / 0 / -5 / -10 (только у левшей)
-  effRating: number // baseRating + rarity + clubBonus + leftyBonus
+  eventBonus: number // сумма случайных событий матча (масло клуба, край, жара...)
+  effRating: number // baseRating + rarity + clubBonus + leftyBonus + eventBonus
   skill: number // effRating - r80 ростера; вход ВСЕХ вероятностей
   vol: number // волатильность новичка: 1 - rel
 }
@@ -49,6 +50,7 @@ export interface ThrowEvent {
   isStrike: boolean
   isSpare: boolean
   leaveKind: LeaveKind | null // категория лива, образованного ПЕРВЫМ броском
+  brooklyn: boolean // шар зашёл в бруклин (для правши — между 1-2, для левши зеркально)
 }
 
 export interface FrameScore {

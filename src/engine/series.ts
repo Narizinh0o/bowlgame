@@ -19,11 +19,23 @@ export interface TwoGamesResult {
   tied: boolean
 }
 
-export function playTwoGames(lineupA: MatchPlayer[], lineupB: MatchPlayer[], rng: Rng): TwoGamesResult {
+/** Команда на «своей» дорожке игры получает её случайный бонус к рейтингу каждого. */
+function onLane(lineup: MatchPlayer[], delta: number): MatchPlayer[] {
+  if (delta === 0) return lineup
+  return lineup.map((p) => ({ ...p, effRating: p.effRating + delta, skill: p.skill + delta }))
+}
+
+export function playTwoGames(
+  lineupA: MatchPlayer[],
+  lineupB: MatchPlayer[],
+  laneBonus: [number, number],
+  rng: Rng,
+): TwoGamesResult {
   const hcp: [number, number] = [teamHcp(lineupA), teamHcp(lineupB)]
+  // Игра 1: А на дорожке 0 (№9), Б на дорожке 1 (№10); игра 2 — наоборот.
   const g: TwoGamesResult['g'] = [
-    { a: playBakerGame(lineupA, rng), b: playBakerGame(lineupB, rng) },
-    { a: playBakerGame(lineupA, rng), b: playBakerGame(lineupB, rng) },
+    { a: playBakerGame(onLane(lineupA, laneBonus[0]), rng), b: playBakerGame(onLane(lineupB, laneBonus[1]), rng) },
+    { a: playBakerGame(onLane(lineupA, laneBonus[1]), rng), b: playBakerGame(onLane(lineupB, laneBonus[0]), rng) },
   ]
   const finals = g.map((game) => [game.a.total + hcp[0], game.b.total + hcp[1]]) as TwoGamesResult['finals']
   const points: [number, number] = [0, 0]
@@ -74,6 +86,7 @@ function rolloffThrow(p: MatchPlayer, slot: number, round: number, rng: Rng): Ro
       isStrike: ft.strike,
       isSpare: false,
       leaveKind: ft.kind,
+      brooklyn: ft.brooklyn,
     },
   }
 }
@@ -89,15 +102,19 @@ export function playRolloff(
   lineupB: MatchPlayer[],
   startA: number,
   startB: number,
+  laneBonus: [number, number],
   rng: Rng,
 ): RolloffResult {
+  // Дорожки в ролл-оффе — как в игре 2: А на дорожке 1 (№10), Б на дорожке 0 (№9).
+  const la = onLane(lineupA, laneBonus[1])
+  const lb = onLane(lineupB, laneBonus[0])
   const rounds: RolloffRound[] = []
   const score: [number, number] = [0, 0]
   for (let i = 0; i < 60; i++) {
     const sa = (startA + i) % 5
     const sb = (startB + i) % 5
-    const a = rolloffThrow(lineupA[sa], sa, i + 1, rng)
-    const b = rolloffThrow(lineupB[sb], sb, i + 1, rng)
+    const a = rolloffThrow(la[sa], sa, i + 1, rng)
+    const b = rolloffThrow(lb[sb], sb, i + 1, rng)
     if (a.pins > b.pins) score[0]++
     else if (b.pins > a.pins) score[1]++
     else {

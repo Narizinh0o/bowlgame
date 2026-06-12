@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   aiRolloffStart,
+  LANE_BONUS_MAX,
   mulberry32,
   pickWeighted,
   playRolloff,
@@ -43,8 +44,9 @@ const REACTION_PHRASES: Record<Reaction, string[]> = {
 
 function throwText(e: ThrowEvent): string {
   if (e.pinsBefore.length === 10) {
-    if (e.isStrike) return 'СТРАЙК!'
-    return `сбито ${e.pinsDown} — ${KIND_RU[e.leaveKind ?? '']}: ${e.leaveAfter.join('-') || '—'}`
+    if (e.isStrike) return e.brooklyn ? 'СТРАЙК С БРУКЛИНА!' : 'СТРАЙК!'
+    const base = `сбито ${e.pinsDown} — ${KIND_RU[e.leaveKind ?? '']}: ${e.leaveAfter.join('-') || '—'}`
+    return e.brooklyn ? `бруклин! ${base}` : base
   }
   if (e.isSpare) return `добил ${e.pinsBefore.join('-')} — спэр!`
   return e.pinsDown === 0 ? `промах по ${e.pinsBefore.join('-')}` : `сбил только ${e.pinsDown}`
@@ -166,6 +168,8 @@ interface Step {
   lane: 0 | 1
   benchMood: BenchMood
   rolloff: boolean
+  shout: boolean // команда кричит «ДАЙ БРУКЛИН!!!» пока шар летит
+  ours: boolean // страйк с бруклина игроком Brooklyn Bowl: «БРУКЛИН НАШ!»
 }
 
 /** Дорожка команды в игре: игра 1 — А на левой (№9), игра 2 и ролл-офф — наоборот. */
@@ -233,30 +237,62 @@ interface Props {
 
 export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }: Props) {
   const rngRef = useRef(mulberry32(randomSeed()))
-  const two = useMemo(() => playTwoGames(lineups[0], lineups[1], rngRef.current), [lineups])
+
+  // Случайный рейтинг дорожек на матч + сама серия (бонусы применяются по играм).
+  const { laneBonus, two } = useMemo(() => {
+    const rng = rngRef.current
+    const lb: [number, number] = [
+      Math.round((rng() * 2 - 1) * LANE_BONUS_MAX),
+      Math.round((rng() * 2 - 1) * LANE_BONUS_MAX),
+    ]
+    return { laneBonus: lb, two: playTwoGames(lineups[0], lineups[1], lb, rng) }
+  }, [lineups])
+
+  const laneLabels = useMemo<[string, string]>(() => {
+    const lab = (v: number) => (v > 0 ? 'хорошая дорожка' : v < 0 ? 'плохая дорожка' : 'обычная дорожка')
+    const L: [string, string] = [lab(laneBonus[0]), lab(laneBonus[1])]
+    if (laneBonus[0] > 0 && laneBonus[1] > 0 && laneBonus[0] !== laneBonus[1]) {
+      L[laneBonus[0] > laneBonus[1] ? 0 : 1] = 'эта даже лучше'
+    }
+    if (laneBonus[0] < 0 && laneBonus[1] < 0 && laneBonus[0] !== laneBonus[1]) {
+      L[laneBonus[0] < laneBonus[1] ? 0 : 1] = 'эта даже хуже'
+    }
+    return L
+  }, [laneBonus])
+
+  const mkStep = (team: 0 | 1, ev: ThrowEvent, gi: 0 | 1, isRolloff: boolean, rng: () => number): Step => {
+    const player = lineups[team].find((p) => p.id === ev.playerId)
+    const full = ev.pinsBefore.length === 10
+    return {
+      team,
+      ev,
+      reaction: isRolloff ? rolloffReaction(ev.pinsDown, rng) : reactionFor(ev, rng),
+      lane: laneOf(team, gi),
+      benchMood: isRolloff && ev.pinsDown <= 5 ? 'faint' : gameMood(ev),
+      rolloff: isRolloff,
+      shout: ev.brooklyn && full && rng() < 0.6,
+      ours: ev.brooklyn && ev.isStrike && (player?.club ?? '') === 'brooklyn bowl',
+    }
+  }
 
   const gameSteps = useMemo<[Step[], Step[]]>(() => {
     const rng = mulberry32(randomSeed())
     const build = (gi: 0 | 1): Step[] => {
       const list: Step[] = []
+      // Игру 1 начинает команда 1, игру 2 (после смены дорожек) — команда 2.
+      const order = gi === 0 ? ([0, 1] as const) : ([1, 0] as const)
       for (let f = 1; f <= 10; f++) {
-        for (const team of [0, 1] as const) {
+        for (const team of order) {
           const game = team === 0 ? two.g[gi].a : two.g[gi].b
           for (const ev of game.events.filter((e) => e.frame === f)) {
-            list.push({
-              team,
-              ev,
-              reaction: reactionFor(ev, rng),
-              lane: laneOf(team, gi),
-              benchMood: gameMood(ev),
-              rolloff: false,
-            })
+            list.push(mkStep(team, ev, gi, false, rng))
           }
         }
       }
       return list
     }
     return [build(0), build(1)]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [two])
 
   const [rolloff, setRolloff] = useState<RolloffResult | null>(null)
@@ -272,19 +308,14 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
     const rng = mulberry32(randomSeed())
     const list: Step[] = []
     for (const round of rolloff.rounds) {
-      for (const team of [0, 1] as const) {
+      // В ролл-оффе очерёдность как в игре 2: начинает команда 2.
+      for (const team of [1, 0] as const) {
         const th = team === 0 ? round.a : round.b
-        list.push({
-          team,
-          ev: th.ev,
-          reaction: rolloffReaction(th.pins, rng),
-          lane: laneOf(team, 1),
-          benchMood: th.pins <= 5 ? 'faint' : gameMood(th.ev) === 'idle' && th.pins < 9 ? 'sad' : gameMood(th.ev),
-          rolloff: true,
-        })
+        list.push(mkStep(team, th.ev, 1, true, rng))
       }
     }
     return list
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rolloff])
 
   const steps = stage.k === 'play' ? gameSteps[stage.gi] : stage.k === 'rolloff' ? rolloffSteps : null
@@ -343,7 +374,7 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
   const handlePick = (slot: number) => {
     if (stage.k !== 'pick') return
     if (mode === 'ai') {
-      const ro = playRolloff(lineups[0], lineups[1], slot, aiRolloffStart(lineups[1]), rngRef.current)
+      const ro = playRolloff(lineups[0], lineups[1], slot, aiRolloffStart(lineups[1]), laneBonus, rngRef.current)
       setStartA(slot)
       setRolloff(ro)
       setStage({ k: 'rolloff' })
@@ -353,7 +384,7 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
       setStartA(slot)
       setStage({ k: 'pick', who: 1 })
     } else {
-      const ro = playRolloff(lineups[0], lineups[1], startA ?? 0, slot, rngRef.current)
+      const ro = playRolloff(lineups[0], lineups[1], startA ?? 0, slot, laneBonus, rngRef.current)
       setRolloff(ro)
       setStage({ k: 'rolloff' })
       setShown(1)
@@ -392,9 +423,24 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
   )
   const hud: [LaneHud, LaneHud] = [0, 1].map((lane) => {
     const t = gi === 0 ? (lane as 0 | 1) : ((1 - lane) as 0 | 1)
+    let line: string
+    if (stage.k === 'rolloff') {
+      line = rolloff
+        ? rolloff.rounds
+            .slice(0, fullRounds)
+            .map((r) => (t === 0 ? r.a.pins : r.b.pins))
+            .join(' ')
+        : ''
+    } else {
+      line = boards[t].frames
+        .filter((f): f is FrameScore => f !== null)
+        .map((f, i) => frameSymbols(f.throws, i === 9).join(''))
+        .join(' ')
+    }
     return {
       name: names[t],
       score: stage.k === 'rolloff' ? String(roScore[t]) : String(boards[t].total),
+      line,
     }
   }) as [LaneHud, LaneHud]
   const benchGenders = cur ? lineups[cur.team].filter((p) => p.id !== cur.ev.playerId).map((p) => p.gender) : []
@@ -515,6 +561,7 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
                 activeLane={cur.lane}
                 laneNumbers={['9', '10']}
                 laneHud={hud}
+                laneLabels={laneLabels}
                 benchGenders={benchGenders}
                 speed={speed}
                 paused={paused}
@@ -530,11 +577,23 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
                     {names[cur.team]} · дор. {cur.lane === 0 ? '9' : '10'}
                   </div>
                   <div className="truncate font-bold">{playerOf(cur) ? capName(playerOf(cur)!.name) : ''}</div>
-                  <div className={`text-sm ${impacted ? throwTextClass(cur.ev) : 'text-slate-500'}`}>
-                    {impacted ? (cur.rolloff ? `сбито ${cur.ev.pinsDown}` : throwText(cur.ev)) : 'бросает…'}
+                  <div
+                    className={`text-sm ${
+                      impacted ? throwTextClass(cur.ev) : cur.shout ? 'font-bold text-amber-400' : 'text-slate-500'
+                    }`}
+                  >
+                    {impacted
+                      ? cur.rolloff
+                        ? `сбито ${cur.ev.pinsDown}${cur.ev.brooklyn ? ' (бруклин!)' : ''}`
+                        : throwText(cur.ev)
+                      : cur.shout
+                        ? '«ДАЙ БРУКЛИН!!!»'
+                        : 'бросает…'}
                   </div>
-                  {impacted && cur.reaction !== 'neutral' && (
-                    <div className="reaction-pop text-xs text-slate-400">{phrase}</div>
+                  {impacted && (cur.ours || cur.reaction !== 'neutral') && (
+                    <div className={`reaction-pop text-xs ${cur.ours ? 'font-extrabold text-amber-400' : 'text-slate-400'}`}>
+                      {cur.ours ? 'Вся команда: «БРУКЛИН НАШ!»' : phrase}
+                    </div>
                   )}
                 </div>
               </div>

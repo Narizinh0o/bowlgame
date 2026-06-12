@@ -1,4 +1,14 @@
-import { CLUB_BONUS, displayRating, leftyBonuses, poolRating, teamHcp, type Picked, type PoolSlot } from '../engine'
+import {
+  CLUB_BONUS,
+  displayRating,
+  eventBonusFor,
+  leftyBonuses,
+  poolRating,
+  teamHcp,
+  type MatchEvent,
+  type Picked,
+  type PoolSlot,
+} from '../engine'
 import { EZ_BADGE, RARITY_CARD, RARITY_LABEL, RARITY_TEXT, capName, genderSymbol, shortName } from './ui'
 
 interface Props {
@@ -7,6 +17,7 @@ interface Props {
   tags: [string, string] // короткие метки на занятых карточках
   turn: 0 | 1
   first: 0 | 1
+  events: MatchEvent[] // случайные события матча — влияют на рейтинги
   aiTurn: boolean // ход компьютера — клики заблокированы
   onPick: (i: number) => void
 }
@@ -19,7 +30,17 @@ function clubCounts(picks: Picked[]): Map<string, number> {
   return m
 }
 
-function TeamPanel({ label, picks, active }: { label: string; picks: Picked[]; active: boolean }) {
+function TeamPanel({
+  label,
+  picks,
+  active,
+  events,
+}: {
+  label: string
+  picks: Picked[]
+  active: boolean
+  events: MatchEvent[]
+}) {
   const syn = [...clubCounts(picks).entries()].filter(([, n]) => n >= 2)
   const lefty = leftyBonuses(picks.map((p) => p.player))
   const lefties = picks.filter((p) => p.player.hand === 'L').length
@@ -37,7 +58,8 @@ function TeamPanel({ label, picks, active }: { label: string; picks: Picked[]; a
       <div className="mt-1 flex min-h-[1.6rem] flex-wrap gap-1">
         {picks.map((p, i) => (
           <span key={p.player.id} className={`rounded border px-1.5 py-0.5 text-xs ${RARITY_CARD[p.rarity]}`}>
-            {shortName(p.player.name)} <b className="tabular-nums">{displayRating(p) + lefty[i]}</b>
+            {shortName(p.player.name)}{' '}
+            <b className="tabular-nums">{displayRating(p) + lefty[i] + eventBonusFor(events, p.player)}</b>
             {p.player.hand === 'L' && <span className={`ml-0.5 ${EZ_BADGE}`}>EZ</span>}
           </span>
         ))}
@@ -62,7 +84,7 @@ function TeamPanel({ label, picks, active }: { label: string; picks: Picked[]; a
   )
 }
 
-export default function DraftScreen({ pool, names, tags, turn, first, aiTurn, onPick }: Props) {
+export default function DraftScreen({ pool, names, tags, turn, first, events, aiTurn, onPick }: Props) {
   const picksA = pool.filter((s) => s.pickedBy === 0)
   const picksB = pool.filter((s) => s.pickedBy === 1)
   const done = picksA.length + picksB.length
@@ -79,9 +101,22 @@ export default function DraftScreen({ pool, names, tags, turn, first, aiTurn, on
         <span className="text-xs text-slate-500">монетка: первым пикает {names[first]}</span>
       </div>
 
+      {events.length > 0 && (
+        <div className="mb-2 rounded-lg border border-amber-400/30 bg-slate-900 p-2">
+          <div className="text-xs font-bold text-amber-400">📋 События матча (рейтинги уже учитывают):</div>
+          <div className="mt-0.5 space-y-0.5 text-[11px] leading-snug">
+            {events.map((e, i) => (
+              <div key={i} className={e.bonus > 0 ? 'text-emerald-300' : 'text-red-300'}>
+                • {e.text}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-2 md:grid-cols-2">
-        <TeamPanel label={names[0]} picks={picksA} active={turn === 0} />
-        <TeamPanel label={names[1]} picks={picksB} active={turn === 1} />
+        <TeamPanel label={names[0]} picks={picksA} active={turn === 0} events={events} />
+        <TeamPanel label={names[1]} picks={picksB} active={turn === 1} events={events} />
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
@@ -104,7 +139,7 @@ export default function DraftScreen({ pool, names, tags, turn, first, aiTurn, on
                   {genderSymbol(s.player)}
                   {s.player.hand === 'L' && <span className={`ml-1 ${EZ_BADGE}`}>EZ</span>}
                 </span>
-                <span className="text-lg font-extrabold tabular-nums">{poolRating(s)}</span>
+                <span className="text-lg font-extrabold tabular-nums">{poolRating(s, events)}</span>
               </div>
               <div className="flex min-h-[0.9rem] items-center justify-between">
                 <span className={`text-[10px] font-bold ${RARITY_TEXT[s.rarity]}`}>{RARITY_LABEL[s.rarity]}</span>

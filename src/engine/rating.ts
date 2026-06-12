@@ -1,4 +1,5 @@
 import type { MatchPlayer, Rarity, RatedPlayer, RosterPlayer } from './types'
+import { eventBonusFor, type MatchEvent } from './events'
 import {
   CLUB_BONUS,
   COEF_PCT,
@@ -85,24 +86,32 @@ export function toMatchPlayer(
   clubBonus: number,
   r80: number,
   leftyBonus = 0,
+  eventBonus = 0,
 ): MatchPlayer {
-  const effRating = p.baseRating + RARITY_BONUS[rarity] + clubBonus + leftyBonus
+  const effRating = p.baseRating + RARITY_BONUS[rarity] + clubBonus + leftyBonus + eventBonus
   return {
     ...p,
     rarity,
     clubBonus,
     leftyBonus,
+    eventBonus,
     effRating,
     skill: effRating - r80,
     vol: 1 - p.rel,
   }
 }
 
-/** Собрать пятёрку в MatchPlayer[] с учётом клубной синергии и бонусов левшей. */
-export function buildLineup(picks: { player: RatedPlayer; rarity: Rarity }[], r80: number): MatchPlayer[] {
+/** Собрать пятёрку в MatchPlayer[]: клубная синергия, бонусы левшей, события матча. */
+export function buildLineup(
+  picks: { player: RatedPlayer; rarity: Rarity }[],
+  r80: number,
+  events: MatchEvent[] = [],
+): MatchPlayer[] {
   const clubs = clubBonuses(picks.map((p) => p.player))
   const lefty = leftyBonuses(picks.map((p) => p.player))
-  return picks.map((p, i) => toMatchPlayer(p.player, p.rarity, clubs[i], r80, lefty[i]))
+  return picks.map((p, i) =>
+    toMatchPlayer(p.player, p.rarity, clubs[i], r80, lefty[i], eventBonusFor(events, p.player)),
+  )
 }
 
 /** Отображаемый коэффициент (для отладки и спеки; в UI не показывается). */

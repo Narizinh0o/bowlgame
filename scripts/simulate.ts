@@ -12,7 +12,9 @@ import path from 'node:path'
 import {
   aiRolloffStart,
   buildRatedRoster,
+  eventBonusFor,
   leftyBonuses,
+  rollMatchEvents,
   displayCoef,
   mulberry32,
   playBakerGame,
@@ -53,7 +55,7 @@ console.log('=== Скоринг (юнит-проверки) ===')
 function syntheticPlayer(skill: number, vol = 0, hand: 'R' | 'L' = 'R'): MatchPlayer {
   return {
     id: 0, name: 'bot', gender: 'М', hand, club: '—', avg: 0, games: 999,
-    baseRating: 0, rel: 1 - vol, rarity: 'common', clubBonus: 0, leftyBonus: 0,
+    baseRating: 0, rel: 1 - vol, rarity: 'common', clubBonus: 0, leftyBonus: 0, eventBonus: 0,
     effRating: 0, skill, vol,
   }
 }
@@ -222,6 +224,36 @@ console.log('\n=== Реальный ростер ===')
   check(leftyBonuses(hands(['L', 'L', 'L', 'L', 'L']))[0] === -10, 'EZ: пять левшей -10')
   check(leftyBonuses(hands(['R', 'L', 'R', 'R', 'R']))[0] === 0, 'EZ: правшам бонус не положен')
 
+  // Случайные события матча: количество 3..7, минимум одно клубное, без конфликтов.
+  {
+    const clubs = ['альфа', 'бета', 'гамма', 'дельта', 'эпсилон', 'дзета', 'эта', 'тета']
+    const rngE = mulberry32(2024)
+    for (let i = 0; i < 2000; i++) {
+      const evs = rollMatchEvents(clubs, rngE)
+      check(evs.length >= 3 && evs.length <= 7, `событий должно быть 3..7, а не ${evs.length}`)
+      check(evs.some((e) => e.kind === 'club'), 'хотя бы одно клубное событие — всегда')
+      for (const hand of ['L', 'R'])
+        check(evs.filter((e) => e.kind === 'hand' && e.hand === hand).length <= 1, 'край и зона не вместе')
+      check(evs.filter((e) => e.kind === 'all' && Math.abs(e.bonus) === 5).length <= 2, 'жара + одна машинка максимум')
+      const clubsUsed = evs.filter((e) => e.kind === 'club').map((e) => (e.kind === 'club' ? e.club : ''))
+      check(new Set(clubsUsed).size === clubsUsed.length, 'клубы в событиях не повторяются')
+      check(eventBonusFor(evs, { club: 'нет-такого', hand: 'X' }) === evs.filter((e) => e.kind === 'all').reduce((s, e) => s + e.bonus, 0), 'eventBonusFor: посторонним только общие события')
+    }
+    console.log('события матча: количество, клубный минимум и взаимоисключения ок (2000 генераций)')
+  }
+
+  // Рейтинг дорожек: команда на +10 дорожке против -10 должна выигрывать игру заметно чаще.
+  {
+    const rngL = mulberry32(31)
+    let wins = 0
+    for (let i = 0; i < 1500; i++) {
+      const two = playTwoGames(mid5, mid5, [10, -10], rngL)
+      if (two.finals[0][0] > two.finals[0][1]) wins++ // игра 1: А на дорожке +10
+    }
+    console.log(`дорожка +10 против −10: винрейт игры ${((100 * wins) / 1500).toFixed(1)}% (ожидание ~75-85%)`)
+    check(wins / 1500 > 0.65, 'бонус дорожки должен ощутимо влиять')
+  }
+
   const mAll = byRating.filter((p) => p.gender === 'М')
   const startM = Math.max(0, Math.floor(mAll.length / 2) - 2)
   const midM = mAll.slice(startM, startM + 5).map(mp)
@@ -242,7 +274,7 @@ console.log('\n=== Реальный ростер ===')
     const N = 2000
     let rolloffs = 0
     for (let i = 0; i < N; i++) {
-      const two = playTwoGames(mid5, midM, rngS)
+      const two = playTwoGames(mid5, midM, [0, 0], rngS)
       const ptsSum = two.points[0] + two.points[1]
       check(Math.abs(ptsSum - 2) < 1e-9, 'очки серии всегда в сумме 2')
       if (two.tied) rolloffs++
@@ -251,7 +283,7 @@ console.log('\n=== Реальный ростер ===')
 
     const rngR = mulberry32(88)
     for (let i = 0; i < 500; i++) {
-      const ro = playRolloff(mid5, midM, 2, 4, rngR)
+      const ro = playRolloff(mid5, midM, 2, 4, [0, 0], rngR)
       const last = ro.rounds[ro.rounds.length - 1].score
       check(ro.rounds.length >= 3, 'ролл-офф: минимум 3 раунда')
       check(Math.max(last[0], last[1]) >= 3 && last[0] !== last[1], 'ролл-офф: конец при 3+ с перевесом')

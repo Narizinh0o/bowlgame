@@ -33,6 +33,7 @@ function doFirstThrow(p: MatchPlayer, frame: number, throwIndex: number, rng: Rn
       isStrike: ft.strike,
       isSpare: false,
       leaveKind: ft.kind,
+      brooklyn: ft.brooklyn,
     },
   }
 }
@@ -58,6 +59,7 @@ function doSecondThrow(
       isStrike: false,
       isSpare: st.converted,
       leaveKind: ft.kind,
+      brooklyn: false,
     },
   }
 }

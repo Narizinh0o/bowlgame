@@ -26,6 +26,16 @@ export function pickWeighted<T>(items: readonly T[], weightOf: (t: T) => number,
   return items[items.length - 1]
 }
 
+/** Перемешанная копия массива (Фишер-Йетс). */
+export function shuffle<T>(items: readonly T[], rng: Rng): T[] {
+  const a = [...items]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
 /** Случайное подмножество размера k (для выбора, какие кегли устояли при недоборе). */
 export function pickSubset<T>(items: readonly T[], k: number, rng: Rng): T[] {
   const pool = [...items]

@@ -7,6 +7,8 @@ import {
   buildRatedRoster,
   mulberry32,
   randomSeed,
+  rollMatchEvents,
+  type MatchEvent,
   type MatchPlayer,
   type Picked,
   type PoolSlot,
@@ -32,6 +34,7 @@ export default function App() {
   const [turn, setTurn] = useState<0 | 1>(0)
   const [first, setFirst] = useState<0 | 1>(0)
   const [orderA, setOrderA] = useState<Picked[] | null>(null)
+  const [events, setEvents] = useState<MatchEvent[]>([])
   const rngRef = useRef(mulberry32(randomSeed()))
 
   useEffect(() => {
@@ -51,6 +54,7 @@ export default function App() {
     const f: 0 | 1 = rngRef.current() < 0.5 ? 0 : 1
     setMode(m)
     setPool(buildPool(rated.players, rngRef.current))
+    setEvents(rollMatchEvents(rated.players.map((p) => p.club), rngRef.current))
     setFirst(f)
     setTurn(f)
     setOrderA(null)
@@ -72,7 +76,7 @@ export default function App() {
   useEffect(() => {
     if (screen.s !== 'draft' || mode !== 'ai' || turn !== 1) return
     const t = setTimeout(() => {
-      const idx = aiPickIndex(pool, 1, rngRef.current)
+      const idx = aiPickIndex(pool, 1, events, rngRef.current)
       if (idx >= 0) doPick(idx)
     }, 650)
     return () => clearTimeout(t)
@@ -81,7 +85,10 @@ export default function App() {
 
   const startMatch = (oA: Picked[], oB: Picked[]) => {
     if (!rated) return
-    const lineups: [MatchPlayer[], MatchPlayer[]] = [buildLineup(oA, rated.r80), buildLineup(oB, rated.r80)]
+    const lineups: [MatchPlayer[], MatchPlayer[]] = [
+      buildLineup(oA, rated.r80, events),
+      buildLineup(oB, rated.r80, events),
+    ]
     setScreen({ s: 'match', lineups })
   }
 
@@ -119,6 +126,7 @@ export default function App() {
           tags={tags}
           turn={turn}
           first={first}
+          events={events}
           aiTurn={mode === 'ai' && turn === 1}
           onPick={doPick}
         />
@@ -129,6 +137,7 @@ export default function App() {
           key={screen.who}
           title={`${names[screen.who]}: расставь пятёрку по слотам`}
           picks={picksOf(pool, screen.who)}
+          events={events}
           doneLabel={mode === 'hotseat' && screen.who === 0 ? 'Готово — дальше соперник' : 'В бой!'}
           onDone={onArranged}
         />

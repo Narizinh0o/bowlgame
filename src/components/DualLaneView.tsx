@@ -69,9 +69,11 @@ function computeParams(ev: ThrowEvent, hand: string): ThrowParams {
   const meanU = (pins: number[]) =>
     pins.length ? pins.reduce((s, p) => s + PIN_POS[p].u, 0) / pins.length : 0
 
+  // Бруклин: шар перелетает карман и бьёт с другой стороны головы (у правши — 1-2).
+  const target = ev.brooklyn ? -pocket : pocket
   let uT: number
   if (full) {
-    uT = ev.isStrike ? pocket : 0.55 * meanU(downPins) + 0.45 * pocket
+    uT = ev.isStrike ? target : 0.55 * meanU(downPins) + 0.45 * target
   } else if (downPins.length > 0) {
     uT = meanU(downPins)
   } else {
@@ -112,6 +114,7 @@ type Pose = 'throw' | 'idle' | Reaction
 export interface LaneHud {
   name: string
   score: string
+  line: string // строка фреймов «X 9/ 9–» (или пины раундов ролл-оффа)
 }
 
 interface Props {
@@ -122,6 +125,7 @@ interface Props {
   activeLane: 0 | 1
   laneNumbers: [string, string]
   laneHud: [LaneHud, LaneHud] // мини-счёт над каждой дорожкой
+  laneLabels: [string, string] // «хорошая/плохая/обычная дорожка»
   benchGenders: string[] // пол четырёх запасных (реальные одноклубники)
   speed: 1 | 2
   paused: boolean
@@ -138,6 +142,7 @@ export default function DualLaneView({
   activeLane,
   laneNumbers,
   laneHud,
+  laneLabels,
   benchGenders,
   speed,
   paused,
@@ -382,6 +387,24 @@ export default function DualLaneView({
       ctx.textBaseline = 'middle'
       ctx.fillText(laneNumbers[laneIdx], lcx, topY + 8.5)
 
+      // мини-табло над дорожкой: имя · счёт + строка фреймов (обновляется после удара)
+      const hud = hudRef.current[laneIdx]
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'alphabetic'
+      ctx.fillStyle = 'rgba(255,255,255,0.92)'
+      ctx.font = '700 10px Inter, sans-serif'
+      ctx.fillText(`${hud.name.slice(0, 12)} · ${hud.score}`, lcx, topY - 16)
+      if (hud.line) {
+        ctx.fillStyle = 'rgba(226,232,240,0.75)'
+        ctx.font = '600 7.5px Inter, sans-serif'
+        ctx.fillText(hud.line.length > 34 ? '…' + hud.line.slice(-33) : hud.line, lcx, topY - 6)
+      }
+
+      // вердикт дорожки («хорошая/плохая/обычная») — на настиле
+      ctx.fillStyle = 'rgba(255,255,255,0.38)'
+      ctx.font = 'italic 600 9px Inter, sans-serif'
+      ctx.fillText(laneLabels[laneIdx], lcx, project(lcx, 0, 0.45).y)
+
       // кегли
       for (const pin of DRAW_ORDER) {
         const pos = PIN_POS[pin]
@@ -550,16 +573,6 @@ export default function DualLaneView({
         ctx.beginPath()
         ctx.arc(x, sy - 4, 3.4, 0, Math.PI * 2)
         ctx.fill()
-      }
-
-      // мини-счёт над каждой дорожкой
-      ctx.font = '600 10px Inter, sans-serif'
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'alphabetic'
-      for (const li of [0, 1] as const) {
-        const hud = hudRef.current[li]
-        ctx.fillStyle = 'rgba(255,255,255,0.88)'
-        ctx.fillText(`${hud.name.slice(0, 12)} · ${hud.score}`, LANE_CX[li], Y1 - 32)
       }
     }
 

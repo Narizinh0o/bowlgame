@@ -1,15 +1,24 @@
 import { useState } from 'react'
-import { clubBonuses, displayRating, leftyBonuses, teamHcp, type Picked } from '../engine'
+import {
+  clubBonuses,
+  displayRating,
+  eventBonusFor,
+  leftyBonuses,
+  teamHcp,
+  type MatchEvent,
+  type Picked,
+} from '../engine'
 import { EZ_BADGE, RARITY_CARD, RARITY_LABEL, RARITY_TEXT, capName, genderSymbol } from './ui'
 
 interface Props {
   title: string
   picks: Picked[]
+  events: MatchEvent[]
   doneLabel: string
   onDone: (order: Picked[]) => void
 }
 
-export default function ArrangeScreen({ title, picks, doneLabel, onDone }: Props) {
+export default function ArrangeScreen({ title, picks, events, doneLabel, onDone }: Props) {
   const [order, setOrder] = useState<Picked[]>(picks)
   const [sel, setSel] = useState<number | null>(null)
 
@@ -102,6 +111,15 @@ export default function ArrangeScreen({ title, picks, doneLabel, onDone }: Props
                     {' '}
                     {lefty[i] > 0 ? '+' : ''}
                     {lefty[i]}
+                  </span>
+                )}
+                {eventBonusFor(events, p.player) !== 0 && (
+                  <span
+                    className={`text-sm ${eventBonusFor(events, p.player) > 0 ? 'text-sky-300' : 'text-slate-500'}`}
+                  >
+                    {' '}
+                    {eventBonusFor(events, p.player) > 0 ? '+' : ''}
+                    {eventBonusFor(events, p.player)}
                   </span>
                 )}
               </div>
