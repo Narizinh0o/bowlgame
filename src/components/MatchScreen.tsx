@@ -32,14 +32,27 @@ const KIND_RU: Record<string, string> = {
   wild: 'дикий лив',
 }
 
-const REACTION_PHRASES: Record<Reaction, string[]> = {
+/** Фраза реакции: строка или пара [мужской вариант, женский вариант]. */
+type PhraseDef = string | [string, string]
+
+const REACTION_PHRASES: Record<Reaction, PhraseDef[]> = {
   huge_joy: ['прыгает от счастья!', 'танцует на подходе!', 'кулаки в небо!', 'обнимает всю команду!'],
-  joy: ['доволен!', 'есть!', 'кивает с улыбкой'],
-  cocky: ['как и планировал', 'даже не смотрит на кегли', 'поправляет воротник'],
+  joy: [['доволен!', 'довольна!'], 'есть!', 'кивает с улыбкой'],
+  cocky: [
+    ['как и планировал', 'как и планировала'],
+    'даже не смотрит на кегли',
+    ['поправляет воротник', 'поправляет хвостик'],
+  ],
   neutral: [''],
   sad: ['вздыхает', 'качает головой', 'разводит руками'],
-  huge_sad: ['хватается за голову!', 'падает на колени!', 'не верит своим глазам!'],
+  huge_sad: ['хватается за голову!', 'падает на колени!', ['не верит своим глазам!', 'не верит своим глазам!']],
   stone_face: ['каменное лицо', 'ноль эмоций', '…'],
+}
+
+function phraseFor(reaction: Reaction, idx: number, gender: string): string {
+  const defs = REACTION_PHRASES[reaction]
+  const def = defs[idx % defs.length]
+  return Array.isArray(def) ? def[gender === 'Ж' ? 1 : 0] : def
 }
 
 function throwText(e: ThrowEvent): string {
@@ -414,7 +427,7 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
 
   const winner: 0 | 1 = two.tied ? (rolloff ? rolloff.winner : 0) : two.points[0] > two.points[1] ? 0 : 1
   const playerOf = (s: Step) => lineups[s.team].find((p) => p.id === s.ev.playerId)
-  const phrase = cur ? REACTION_PHRASES[cur.reaction][(shown - 1) % REACTION_PHRASES[cur.reaction].length] : ''
+  const phrase = cur ? phraseFor(cur.reaction, shown - 1, playerOf(cur)?.gender ?? 'М') : ''
   const gi = stage.k === 'play' ? stage.gi : 1
 
   // Частичные табло обеих команд (по видимым шагам) и мини-счёт над дорожками.

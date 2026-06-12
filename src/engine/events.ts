@@ -1,4 +1,5 @@
 import {
+  CLUB_EVENTS_WEIGHTS,
   EVENT_ALL_DELTA,
   EVENT_CLUB_BONUS,
   EVENT_HAND_EDGE,
@@ -7,10 +8,8 @@ import {
   EVENT_HAND_ZONE_P,
   EVENT_HEAT_P,
   EVENT_MACHINE_P,
-  EVENTS_MAX,
-  EVENTS_MIN,
 } from './constants'
-import { shuffle, type Rng } from './rng'
+import { pickWeighted, shuffle, type Rng } from './rng'
 
 /**
  * Случайные события матча (GAME_PLAN.md §3): генерятся перед драфтом, видны на экране
@@ -64,9 +63,8 @@ export function rollMatchEvents(clubs: string[], rng: Rng): MatchEvent[] {
     }
   }
 
-  // Клубных — столько, чтобы добрать до случайной цели 3..7, но минимум одно.
-  const target = EVENTS_MIN + Math.floor(rng() * (EVENTS_MAX - EVENTS_MIN + 1))
-  const clubCount = Math.max(1, target - events.length)
+  // Клубные события — всегда; сколько клубов «разобралось с маслом» — рандом по весам.
+  const clubCount = pickWeighted([1, 2, 3, 4], (n) => CLUB_EVENTS_WEIGHTS[n - 1], rng)
   const pool = shuffle(
     [...new Set(clubs.filter((c) => c && c !== '—'))],
     rng,

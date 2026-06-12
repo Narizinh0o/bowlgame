@@ -56,13 +56,18 @@ function TeamPanel({
         </span>
       </div>
       <div className="mt-1 flex min-h-[1.6rem] flex-wrap gap-1">
-        {picks.map((p, i) => (
-          <span key={p.player.id} className={`rounded border px-1.5 py-0.5 text-xs ${RARITY_CARD[p.rarity]}`}>
-            {shortName(p.player.name)}{' '}
-            <b className="tabular-nums">{displayRating(p) + lefty[i] + eventBonusFor(events, p.player)}</b>
-            {p.player.hand === 'L' && <span className={`ml-0.5 ${EZ_BADGE}`}>EZ</span>}
-          </span>
-        ))}
+        {picks.map((p, i) => {
+          const totalNow = displayRating(p) + lefty[i] + eventBonusFor(events, p.player)
+          return (
+            <span key={p.player.id} className={`rounded border px-1.5 py-0.5 text-xs ${RARITY_CARD[p.rarity]}`}>
+              {shortName(p.player.name)} <b className="tabular-nums">{totalNow}</b>
+              {totalNow !== displayRating(p) && (
+                <span className="text-[10px] text-slate-500 tabular-nums"> ({displayRating(p)})</span>
+              )}
+              {p.player.hand === 'L' && <span className={`ml-0.5 ${EZ_BADGE}`}>EZ</span>}
+            </span>
+          )
+        })}
       </div>
       {(syn.length > 0 || lefties > 0) && (
         <div className="mt-1 text-[11px]">
@@ -139,7 +144,23 @@ export default function DraftScreen({ pool, names, tags, turn, first, events, ai
                   {genderSymbol(s.player)}
                   {s.player.hand === 'L' && <span className={`ml-1 ${EZ_BADGE}`}>EZ</span>}
                 </span>
-                <span className="text-lg font-extrabold tabular-nums">{poolRating(s, events)}</span>
+                <span className="text-right">
+                  <span className="block text-lg font-extrabold leading-none tabular-nums">
+                    {poolRating(s, events)}
+                  </span>
+                  {poolRating(s, events) !== displayRating(s) && (
+                    <span className="block text-[9px] leading-tight text-slate-500 tabular-nums">
+                      {displayRating(s)}
+                      {s.player.hand === 'L' && <span className="text-red-400">+10</span>}
+                      {eventBonusFor(events, s.player) !== 0 && (
+                        <span className={eventBonusFor(events, s.player) > 0 ? 'text-sky-300' : 'text-red-300'}>
+                          {eventBonusFor(events, s.player) > 0 ? '+' : ''}
+                          {eventBonusFor(events, s.player)}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </span>
               </div>
               <div className="flex min-h-[0.9rem] items-center justify-between">
                 <span className={`text-[10px] font-bold ${RARITY_TEXT[s.rarity]}`}>{RARITY_LABEL[s.rarity]}</span>

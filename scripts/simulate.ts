@@ -228,10 +228,13 @@ console.log('\n=== Реальный ростер ===')
   {
     const clubs = ['альфа', 'бета', 'гамма', 'дельта', 'эпсилон', 'дзета', 'эта', 'тета']
     const rngE = mulberry32(2024)
+    let totalCount = 0
     for (let i = 0; i < 2000; i++) {
       const evs = rollMatchEvents(clubs, rngE)
-      check(evs.length >= 3 && evs.length <= 7, `событий должно быть 3..7, а не ${evs.length}`)
-      check(evs.some((e) => e.kind === 'club'), 'хотя бы одно клубное событие — всегда')
+      totalCount += evs.length
+      check(evs.length >= 1 && evs.length <= 8, `событий должно быть 1..8, а не ${evs.length}`)
+      const clubEvs = evs.filter((e) => e.kind === 'club').length
+      check(clubEvs >= 1 && clubEvs <= 4, 'клубных событий всегда 1..4')
       for (const hand of ['L', 'R'])
         check(evs.filter((e) => e.kind === 'hand' && e.hand === hand).length <= 1, 'край и зона не вместе')
       check(evs.filter((e) => e.kind === 'all' && Math.abs(e.bonus) === 5).length <= 2, 'жара + одна машинка максимум')
@@ -239,7 +242,9 @@ console.log('\n=== Реальный ростер ===')
       check(new Set(clubsUsed).size === clubsUsed.length, 'клубы в событиях не повторяются')
       check(eventBonusFor(evs, { club: 'нет-такого', hand: 'X' }) === evs.filter((e) => e.kind === 'all').reduce((s, e) => s + e.bonus, 0), 'eventBonusFor: посторонним только общие события')
     }
-    console.log('события матча: количество, клубный минимум и взаимоисключения ок (2000 генераций)')
+    console.log(
+      `события матча: клубные всегда, взаимоисключения ок; среднее число событий ${(totalCount / 2000).toFixed(2)} (2000 генераций)`,
+    )
   }
 
   // Рейтинг дорожек: команда на +10 дорожке против -10 должна выигрывать игру заметно чаще.

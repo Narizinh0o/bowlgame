@@ -510,12 +510,12 @@ export default function DualLaneView({
       ctx.fillStyle = bg
       ctx.fillRect(0, 0, W, H)
 
-      // логотип: шар + «КЛБ»
+      // логотип: шар + «КээЛБэ» (никаких прав не нарушаем)
       ctx.save()
       ctx.globalAlpha = 0.9
       ctx.fillStyle = '#f59e0b'
       ctx.beginPath()
-      ctx.arc(W / 2 - 34, 26, 13, 0, Math.PI * 2)
+      ctx.arc(W / 2 - 48, 26, 13, 0, Math.PI * 2)
       ctx.fill()
       ctx.fillStyle = '#1e3a8a'
       for (const [hx, hy] of [
@@ -524,15 +524,62 @@ export default function DualLaneView({
         [0, 1],
       ]) {
         ctx.beginPath()
-        ctx.arc(W / 2 - 34 + hx, 26 + hy, 1.9, 0, Math.PI * 2)
+        ctx.arc(W / 2 - 48 + hx, 26 + hy, 1.9, 0, Math.PI * 2)
         ctx.fill()
       }
       ctx.fillStyle = 'rgba(255,255,255,0.92)'
-      ctx.font = '800 24px Inter, sans-serif'
+      ctx.font = '800 19px Inter, sans-serif'
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
-      ctx.fillText('КЛБ', W / 2 - 12, 27)
+      ctx.fillText('КээЛБэ', W / 2 - 28, 27)
       ctx.restore()
+
+      // бейдж трансляции «МячТВ» с мигающим огоньком записи
+      ctx.save()
+      ctx.fillStyle = 'rgba(11,20,48,0.85)'
+      ctx.beginPath()
+      ctx.roundRect(W - 70, 10, 60, 16, 4)
+      ctx.fill()
+      ctx.fillStyle = `rgba(239,68,68,${0.55 + 0.45 * Math.abs(Math.sin(t / 420))})`
+      ctx.beginPath()
+      ctx.arc(W - 61, 18, 2.4, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'
+      ctx.font = '700 9px Inter, sans-serif'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('МячТВ', W - 55, 18.5)
+      ctx.restore()
+
+      // мини-камеры по бокам: на игроков (внизу) и на кегли (вверху)
+      const drawCamera = (x: number, y: number, dir: 1 | -1) => {
+        ctx.save()
+        ctx.strokeStyle = '#334155'
+        ctx.lineWidth = 1.4
+        ctx.beginPath()
+        ctx.moveTo(x, y + 3)
+        ctx.lineTo(x - 3, y + 9)
+        ctx.moveTo(x, y + 3)
+        ctx.lineTo(x + 3, y + 9)
+        ctx.stroke()
+        ctx.fillStyle = '#475569'
+        ctx.beginPath()
+        ctx.roundRect(x - 4.5, y - 3, 9, 6, 1.5)
+        ctx.fill()
+        ctx.fillStyle = '#94a3b8'
+        ctx.beginPath()
+        ctx.arc(x + dir * 5.5, y, 1.8, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = `rgba(239,68,68,${0.4 + 0.6 * Math.abs(Math.sin(t / 500))})`
+        ctx.beginPath()
+        ctx.arc(x - dir * 3, y - 4, 1, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.restore()
+      }
+      drawCamera(56, 232, 1) // на боулера левой дорожки
+      drawCamera(424, 232, -1) // на боулера правой
+      drawCamera(58, 96, 1) // на кегли левой
+      drawCamera(422, 96, -1) // на кегли правой
 
       // пит-задник за обеими дорожками
       ctx.fillStyle = '#0b1220'
