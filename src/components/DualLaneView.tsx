@@ -117,6 +117,12 @@ export interface LaneHud {
   line: string // строка фреймов «X 9/ 9–» (или пины раундов ролл-оффа)
 }
 
+/** Комикс-облако: текст + от кого тянется хвостик. */
+export interface Bubble {
+  text: string
+  from: 'player' | 'bench' | 'opp'
+}
+
 interface Props {
   ev: ThrowEvent
   hand: string
@@ -125,8 +131,12 @@ interface Props {
   activeLane: 0 | 1
   laneNumbers: [string, string]
   laneHud: [LaneHud, LaneHud] // мини-счёт над каждой дорожкой
-  laneLabels: [string, string] // «хорошая/плохая/обычная дорожка»
+  laneLabels: [string, string] // «хорошая/плохая/обычная дорожка +N»
   benchGenders: string[] // пол четырёх запасных (реальные одноклубники)
+  oppBenchGenders: string[] // пол всей пятёрки соперника (сидят за своей дорожкой)
+  bowlerRating: number // итоговый рейтинг бросающего с учётом дорожки
+  flightBubble: Bubble | null // выкрик во время полёта («ДАЙ БРУКЛИН!!!»)
+  resultBubbles: Bubble[] // выкрики после удара (макс. 2)
   speed: 1 | 2
   paused: boolean
   reaction: Reaction
@@ -144,6 +154,10 @@ export default function DualLaneView({
   laneHud,
   laneLabels,
   benchGenders,
+  oppBenchGenders,
+  bowlerRating,
+  flightBubble,
+  resultBubbles,
   speed,
   paused,
   reaction,
@@ -445,6 +459,27 @@ export default function DualLaneView({
         stickman(benchX + benchDir * i * 16, by + 14, 0.6, color, mood, t + i * 137, benchGenders[i] === 'Ж', fainted)
       }
 
+      // скамейка соперников — вся пятёрка за своей дорожкой, наблюдают
+      const oppDir = -benchDir
+      const oppX = LANE_CX[1 - activeLane] + oppDir * 78
+      const oppColor = TEAM_COLOR[1 - team]
+      for (let i = 0; i < Math.min(5, oppBenchGenders.length); i++) {
+        stickman(oppX + oppDir * i * 14, by + 14, 0.55, oppColor, 'idle', t + i * 211, oppBenchGenders[i] === 'Ж')
+      }
+
+      // итоговый рейтинг бросающего (с учётом дорожки) — плашка возле боулера
+      ctx.save()
+      ctx.fillStyle = 'rgba(11,20,48,0.85)'
+      ctx.beginPath()
+      ctx.roundRect(bx - sign * 34 - 13, by - 34, 26, 13, 3.5)
+      ctx.fill()
+      ctx.fillStyle = '#fbbf24'
+      ctx.font = '700 9px Inter, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(String(bowlerRating), bx - sign * 34, by - 27.5)
+      ctx.restore()
+
       // шар
       const tBall = t - params.approach
       if (tBall >= 0 && t <= tImpact + 50) {
@@ -623,6 +658,56 @@ export default function DualLaneView({
       }
     }
 
+    /** Белое комикс-облако с хвостиком-отростком к говорящему. */
+    const drawBubble = (text: string, wantX: number, cy: number, tailX: number, tailY: number, k: number) => {
+      ctx.save()
+      ctx.font = '800 9px Inter, sans-serif'
+      const w = Math.min(160, ctx.measureText(text).width + 16)
+      const h = 18
+      const x = Math.min(W - w / 2 - 3, Math.max(w / 2 + 3, wantX))
+      ctx.translate(x, cy)
+      ctx.scale(k, k)
+      ctx.fillStyle = '#f8fafc'
+      ctx.beginPath()
+      ctx.moveTo(-7, h / 2 - 2)
+      ctx.lineTo(tailX - x, tailY - cy)
+      ctx.lineTo(4, h / 2 - 2)
+      ctx.closePath()
+      ctx.fill()
+      ctx.beginPath()
+      ctx.roundRect(-w / 2, -h / 2, w, h, 9)
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(15,23,42,0.25)'
+      ctx.lineWidth = 1
+      ctx.stroke()
+      ctx.fillStyle = '#0f172a'
+      ctx.font = '800 9px Inter, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(text, 0, 0.5)
+      ctx.restore()
+    }
+
+    const drawBubbles = (t: number) => {
+      const bx = project(cx, params.u0, 0).x - sign * 22
+      const by = Y0 + 16
+      const benchDir = activeLane === 0 ? -1 : 1
+      const benchX = cx + benchDir * 78 + benchDir * 24
+      const oppDir = -benchDir
+      const oppX = LANE_CX[1 - activeLane] + oppDir * 78 + oppDir * 24
+
+      const drawOne = (b: Bubble, tStart: number) => {
+        const k = Math.min(1, Math.max(0, (t - tStart) / 160))
+        if (k <= 0) return
+        if (b.from === 'player') drawBubble(b.text, bx, by - 76, bx, by - 52, k)
+        else if (b.from === 'bench') drawBubble(b.text, benchX, by - 40, benchX - benchDir * 12, by - 10, k)
+        else drawBubble(b.text, oppX, by - 40, oppX - oppDir * 12, by - 10, k)
+      }
+
+      if (flightBubble && t > params.approach * 0.5 && t < tImpact) drawOne(flightBubble, params.approach * 0.5)
+      if (t >= tImpact + 250) resultBubbles.forEach((b, i) => drawOne(b, tImpact + 250 + i * 130))
+    }
+
     const draw = (t: number) => {
       ctx.setTransform(kx, 0, 0, ky, 0, 0)
       ctx.clearRect(0, 0, W, H)
@@ -630,6 +715,7 @@ export default function DualLaneView({
       drawLane(0, t)
       drawLane(1, t)
       drawBallAndBowler(t)
+      drawBubbles(t)
     }
 
     let raf = 0

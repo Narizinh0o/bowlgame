@@ -16,7 +16,7 @@ import {
   type RolloffResult,
   type ThrowEvent,
 } from '../engine'
-import DualLaneView, { type BenchMood, type LaneHud } from './DualLaneView'
+import DualLaneView, { type BenchMood, type Bubble, type LaneHud } from './DualLaneView'
 import PinDeck from './PinDeck'
 import { capName, shortName } from './ui'
 
@@ -183,7 +183,21 @@ interface Step {
   rolloff: boolean
   shout: boolean // команда кричит «ДАЙ БРУКЛИН!!!» пока шар летит
   ours: boolean // страйк с бруклина игроком Brooklyn Bowl: «БРУКЛИН НАШ!»
+  flightBubble: Bubble | null // комикс-облако во время полёта шара
+  resultBubbles: Bubble[] // облака после удара (макс. 2: своё и вражеское)
 }
+
+/** Выкрики в облачках. */
+const SHOUTS_HUGE_JOY = ['ДА-А-А!', 'ЕЕЕСТЬ!', 'ВОТ ЭТО ДА!']
+const SHOUTS_HUGE_SAD = ['НЕТ-НЕТ-НЕТ!', 'ДА КАК ТАК?!', 'НУ ЗА ЧТО?!']
+const SHOUTS_COCKY: [string, string][] = [
+  ['как и планировал', 'как и планировала'],
+  ['изи', 'изи'],
+]
+const SHOUTS_BENCH_STRIKE = ['КРАСАВА!', 'МОЩЬ!', 'ВОТ ТАК НАДО!']
+const SHOUTS_OPP_EYEROLL = ['🙄 как обычно', '🙄 ну конечно']
+
+const pickOf = <T,>(arr: T[], rng: () => number): T => arr[Math.floor(rng() * arr.length)]
 
 /** Дорожка команды в игре: игра 1 — А на левой (№9), игра 2 и ролл-офф — наоборот. */
 const laneOf = (team: 0 | 1, gi: 0 | 1): 0 | 1 => (gi === 0 ? team : ((1 - team) as 0 | 1))
@@ -270,21 +284,48 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
     if (laneBonus[0] < 0 && laneBonus[1] < 0 && laneBonus[0] !== laneBonus[1]) {
       L[laneBonus[0] < laneBonus[1] ? 0 : 1] = 'эта даже хуже'
     }
-    return L
+    // Число — чтобы было видно, НАСКОЛЬКО хорошая/плохая.
+    return L.map((txt, i) =>
+      laneBonus[i] === 0 ? txt : `${txt} ${laneBonus[i] > 0 ? '+' : ''}${laneBonus[i]}`,
+    ) as [string, string]
   }, [laneBonus])
 
   const mkStep = (team: 0 | 1, ev: ThrowEvent, gi: 0 | 1, isRolloff: boolean, rng: () => number): Step => {
     const player = lineups[team].find((p) => p.id === ev.playerId)
     const full = ev.pinsBefore.length === 10
+    const reaction = isRolloff ? rolloffReaction(ev.pinsDown, rng) : reactionFor(ev, rng)
+    const shout = ev.brooklyn && full && rng() < 0.6
+    const ours = ev.brooklyn && ev.isStrike && (player?.club ?? '') === 'brooklyn bowl'
+    const female = player?.gender === 'Ж'
+
+    const resultBubbles: Bubble[] = []
+    if (ours) resultBubbles.push({ text: 'БРУКЛИН НАШ!', from: 'bench' })
+    if (ev.brooklyn && ev.isStrike && rng() < 0.5) {
+      resultBubbles.push({ text: pickOf(SHOUTS_OPP_EYEROLL, rng), from: 'opp' })
+    }
+    if (!ours) {
+      if (reaction === 'huge_joy' && rng() < 0.6) {
+        resultBubbles.push({ text: pickOf(SHOUTS_HUGE_JOY, rng), from: 'player' })
+      } else if (reaction === 'huge_sad' && rng() < 0.6) {
+        resultBubbles.push({ text: pickOf(SHOUTS_HUGE_SAD, rng), from: 'player' })
+      } else if (reaction === 'cocky' && rng() < 0.5) {
+        resultBubbles.push({ text: pickOf(SHOUTS_COCKY, rng)[female ? 1 : 0], from: 'player' })
+      } else if (ev.isStrike && rng() < 0.25) {
+        resultBubbles.push({ text: pickOf(SHOUTS_BENCH_STRIKE, rng), from: 'bench' })
+      }
+    }
+
     return {
       team,
       ev,
-      reaction: isRolloff ? rolloffReaction(ev.pinsDown, rng) : reactionFor(ev, rng),
+      reaction,
       lane: laneOf(team, gi),
       benchMood: isRolloff && ev.pinsDown <= 5 ? 'faint' : gameMood(ev),
       rolloff: isRolloff,
-      shout: ev.brooklyn && full && rng() < 0.6,
-      ours: ev.brooklyn && ev.isStrike && (player?.club ?? '') === 'brooklyn bowl',
+      shout,
+      ours,
+      flightBubble: shout ? { text: 'ДАЙ БРУКЛИН!!!', from: 'bench' } : null,
+      resultBubbles: resultBubbles.slice(0, 2),
     }
   }
 
@@ -576,6 +617,10 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
                 laneHud={hud}
                 laneLabels={laneLabels}
                 benchGenders={benchGenders}
+                oppBenchGenders={lineups[(1 - cur.team) as 0 | 1].map((p) => p.gender)}
+                bowlerRating={(playerOf(cur)?.effRating ?? 0) + laneBonus[cur.lane]}
+                flightBubble={cur.flightBubble}
+                resultBubbles={cur.resultBubbles}
                 speed={speed}
                 paused={paused}
                 reaction={cur.reaction}
@@ -589,7 +634,21 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
                     {cur.rolloff ? `Ролл-офф · раунд ${cur.ev.frame}` : `Игра ${gi + 1} · фрейм ${cur.ev.frame}`} ·{' '}
                     {names[cur.team]} · дор. {cur.lane === 0 ? '9' : '10'}
                   </div>
-                  <div className="truncate font-bold">{playerOf(cur) ? capName(playerOf(cur)!.name) : ''}</div>
+                  <div className="truncate font-bold">
+                    {playerOf(cur) ? capName(playerOf(cur)!.name) : ''}
+                    {playerOf(cur) && (
+                      <span className="ml-2 text-xs font-normal text-slate-400 tabular-nums">
+                        {(playerOf(cur)?.effRating ?? 0) + laneBonus[cur.lane]}
+                        {laneBonus[cur.lane] !== 0 && (
+                          <span className="text-slate-500">
+                            {' '}
+                            ({playerOf(cur)?.effRating} {laneBonus[cur.lane] > 0 ? '+' : ''}
+                            {laneBonus[cur.lane]} дор.)
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </div>
                   <div
                     className={`text-sm ${
                       impacted ? throwTextClass(cur.ev) : cur.shout ? 'font-bold text-amber-400' : 'text-slate-500'
