@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  aiAnchor,
   aiRolloffStart,
   LANE_BONUS_MAX,
   mulberry32,
   pickWeighted,
+  playGameRolloff,
   playRolloff,
   playTwoGames,
   randomSeed,
@@ -266,7 +268,14 @@ function rolloffReaction(pins: number, rng: () => number): Reaction {
   return pickWeighted(table, (x) => x[1], rng)[0]
 }
 
-type Stage = { k: 'play'; gi: 0 | 1 } | { k: 'between' } | { k: 'pick'; who: 0 | 1 } | { k: 'rolloff' } | { k: 'done' }
+type Stage =
+  | { k: 'play'; gi: 0 | 1 }
+  | { k: 'between' }
+  | { k: 'gpick'; gi: 0 | 1; who: 0 | 1 } // выбор игрока на ролл-офф за игру
+  | { k: 'grolloff'; gi: 0 | 1 } // показ ролл-оффа за игру
+  | { k: 'pick'; who: 0 | 1 } // выбор стартового на ролл-офф за матч
+  | { k: 'rolloff' } // показ ролл-оффа за матч
+  | { k: 'done' }
 
 interface Props {
   names: [string, string]
@@ -379,7 +388,10 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
   }, [two])
 
   const [rolloff, setRolloff] = useState<RolloffResult | null>(null)
+  const [gameRolloffs, setGameRolloffs] = useState<(RolloffResult | null)[]>([null, null])
+  const [gameWins, setGameWins] = useState<(0 | 1 | null)[]>([null, null])
   const [startA, setStartA] = useState<number | null>(null)
+  const [gStartA, setGStartA] = useState<number | null>(null)
   const [stage, setStage] = useState<Stage>({ k: 'play', gi: 0 })
   const [shown, setShown] = useState(1)
   const [impacted, setImpacted] = useState(false)
@@ -391,7 +403,7 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
     const rng = mulberry32(randomSeed())
     const list: Step[] = []
     for (const round of rolloff.rounds) {
-      // В ролл-оффе очерёдность как в игре 2: начинает команда 2.
+      // В ролл-оффе за матч очерёдность как в игре 2: начинает команда 2.
       for (const team of [1, 0] as const) {
         const th = team === 0 ? round.a : round.b
         list.push(mkStep(team, th.ev, 1, true, rng))
@@ -401,17 +413,61 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rolloff])
 
-  const steps = stage.k === 'play' ? gameSteps[stage.gi] : stage.k === 'rolloff' ? rolloffSteps : null
+  const gameRolloffSteps = useMemo<[Step[], Step[]]>(() => {
+    const rng = mulberry32(randomSeed())
+    const build = (gi: 0 | 1): Step[] => {
+      const ro = gameRolloffs[gi]
+      if (!ro) return []
+      const list: Step[] = []
+      const order = gi === 0 ? ([0, 1] as const) : ([1, 0] as const)
+      for (const round of ro.rounds) {
+        for (const team of order) {
+          const th = team === 0 ? round.a : round.b
+          list.push(mkStep(team, th.ev, gi, true, rng))
+        }
+      }
+      return list
+    }
+    return [build(0), build(1)]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameRolloffs])
+
+  const steps =
+    stage.k === 'play'
+      ? gameSteps[stage.gi]
+      : stage.k === 'grolloff'
+        ? gameRolloffSteps[stage.gi]
+        : stage.k === 'rolloff'
+          ? rolloffSteps
+          : null
   const playing = steps !== null && steps.length > 0
   const cur = playing ? steps[Math.min(shown, steps.length) - 1] : null
+
+  // Игра gi разрешена: записать победителя и решить, что дальше.
+  const resolveGame = (giDone: 0 | 1, w: 0 | 1) => {
+    const wins = [...gameWins]
+    wins[giDone] = w
+    setGameWins(wins)
+    setShown(1)
+    setImpacted(false)
+    if (giDone === 0) {
+      setStage({ k: 'between' })
+    } else if (wins[0] !== wins[1]) {
+      setStage({ k: 'pick', who: 0 }) // 1-1 по играм → ролл-офф за матч
+    } else {
+      setStage({ k: 'done' })
+    }
+  }
 
   const advance = () => {
     setShown(1)
     setImpacted(false)
-    if (stage.k === 'play' && stage.gi === 0) {
-      setStage({ k: 'between' })
-    } else if (stage.k === 'play' && stage.gi === 1) {
-      setStage(two.tied ? { k: 'pick', who: 0 } : { k: 'done' })
+    if (stage.k === 'play') {
+      const w = two.winByTotal[stage.gi]
+      if (w === null) setStage({ k: 'gpick', gi: stage.gi, who: 0 }) // ничья → ролл-офф за игру
+      else resolveGame(stage.gi, w)
+    } else if (stage.k === 'grolloff') {
+      resolveGame(stage.gi, gameRolloffs[stage.gi]!.winner)
     } else if (stage.k === 'rolloff') {
       setStage({ k: 'done' })
     }
@@ -475,46 +531,79 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
     }
   }
 
+  // Выбор игрока на ролл-офф за игру (один бросок до первого преимущества).
+  const startGameRolloff = (gi: 0 | 1, slotA: number, slotB: number) => {
+    const ro = playGameRolloff(lineups[0], lineups[1], slotA, slotB, laneBonus, gi, rngRef.current)
+    setGameRolloffs((prev) => {
+      const n = [...prev]
+      n[gi] = ro
+      return n
+    })
+    setShown(1)
+    setImpacted(false)
+    setStage({ k: 'grolloff', gi })
+  }
+
+  const handleGamePick = (slot: number) => {
+    if (stage.k !== 'gpick') return
+    if (mode === 'ai') startGameRolloff(stage.gi, slot, aiAnchor(lineups[1]))
+    else if (stage.who === 0) {
+      setGStartA(slot)
+      setStage({ k: 'gpick', gi: stage.gi, who: 1 })
+    } else {
+      startGameRolloff(stage.gi, gStartA ?? 0, slot)
+    }
+  }
+
   // Видимые шаги: текущий бросок попадает на табло только после падения кеглей.
   const visCount = playing ? (impacted ? shown : shown - 1) : 0
   const visSteps = playing && steps ? steps.slice(0, visCount) : []
 
-  const pointsAfterG1: [number, number] =
-    two.finals[0][0] > two.finals[0][1] ? [1, 0] : two.finals[0][1] > two.finals[0][0] ? [0, 1] : [0.5, 0.5]
-  const visPoints: [number, number] =
-    stage.k === 'play' && stage.gi === 0 ? [0, 0] : stage.k === 'between' || (stage.k === 'play' && stage.gi === 1) ? pointsAfterG1 : two.points
+  // Очки серии = число выигранных игр (целые: каждая игра имеет победителя).
+  const points: [number, number] = [0, 0]
+  for (const w of gameWins) {
+    if (w === 0) points[0]++
+    else if (w === 1) points[1]++
+  }
+  const visPoints = points
+  const fmtPts = (x: number) => String(x)
+  const seriesTied = gameWins[0] !== null && gameWins[1] !== null && gameWins[0] !== gameWins[1]
 
-  const fmtPts = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(1))
+  const gi = stage.k === 'play' || stage.k === 'grolloff' || stage.k === 'gpick' ? stage.gi : 1
+  const rolloffMode: 'match' | 'game' | null =
+    stage.k === 'rolloff' ? 'match' : stage.k === 'grolloff' ? 'game' : stage.k === 'pick' ? 'match' : stage.k === 'gpick' ? 'game' : null
+  const activeRolloff =
+    stage.k === 'grolloff' ? gameRolloffs[stage.gi] : stage.k === 'rolloff' || stage.k === 'done' ? rolloff : null
 
   const fullRounds =
-    stage.k === 'done' && rolloff
-      ? rolloff.rounds.length
-      : stage.k === 'rolloff'
+    stage.k === 'done'
+      ? rolloff?.rounds.length ?? 0
+      : stage.k === 'rolloff' || stage.k === 'grolloff'
         ? Math.floor(visCount / 2)
         : 0
   const roScore: [number, number] =
-    rolloff && fullRounds > 0 ? rolloff.rounds[Math.min(fullRounds, rolloff.rounds.length) - 1].score : [0, 0]
+    activeRolloff && fullRounds > 0 ? activeRolloff.rounds[Math.min(fullRounds, activeRolloff.rounds.length) - 1].score : [0, 0]
 
-  const winner: 0 | 1 = two.tied ? (rolloff ? rolloff.winner : 0) : two.points[0] > two.points[1] ? 0 : 1
+  const winner: 0 | 1 = seriesTied ? (rolloff ? rolloff.winner : 0) : points[0] >= points[1] ? 0 : 1
   const playerOf = (s: Step) => lineups[s.team].find((p) => p.id === s.ev.playerId)
   const phrase = cur ? phraseFor(cur.reaction, shown - 1, playerOf(cur)?.gender ?? 'М') : ''
-  const gi = stage.k === 'play' ? stage.gi : 1
 
   // Частичные табло обеих команд (по видимым шагам) и мини-счёт над дорожками.
   const boards = ([0, 1] as const).map((team) =>
     partialFrames(visSteps.filter((s) => s.team === team && !s.rolloff).map((s) => s.ev)),
   )
+  const isRolloffView = stage.k === 'rolloff' || stage.k === 'grolloff'
   const hud: [LaneHud, LaneHud] = [0, 1].map((lane) => {
     const t = gi === 0 ? (lane as 0 | 1) : ((1 - lane) as 0 | 1)
     let frames: string[]
-    if (stage.k === 'rolloff') {
-      frames = rolloff ? rolloff.rounds.slice(0, fullRounds).map((r) => String(t === 0 ? r.a.pins : r.b.pins)) : []
+    if (isRolloffView) {
+      frames = activeRolloff ? activeRolloff.rounds.slice(0, fullRounds).map((r) => String(t === 0 ? r.a.pins : r.b.pins)) : []
     } else {
       frames = boards[t].frames.map((f, i) => (f ? frameSymbols(f.throws, i === 9).join('') : ''))
     }
     return {
       name: names[t],
-      score: stage.k === 'rolloff' ? String(roScore[t]) : String(boards[t].total),
+      score: isRolloffView ? String(roScore[t]) : String(boards[t].total),
       frames,
     }
   }) as [LaneHud, LaneHud]
@@ -534,21 +623,30 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
         <span className="text-xs text-slate-400">
           {stage.k === 'play' && `Игра ${stage.gi + 1} из 2`}
           {stage.k === 'between' && 'Смена дорожек'}
-          {(stage.k === 'pick' || stage.k === 'rolloff') && 'РОЛЛ-ОФФ до 3 очков'}
+          {rolloffMode === 'game' && `РОЛЛ-ОФФ ЗА ИГРУ ${gi + 1}`}
+          {rolloffMode === 'match' && 'РОЛЛ-ОФФ ЗА МАТЧ · до 3'}
           {stage.k === 'done' && 'Матч окончен'}
         </span>
       </div>
 
-      {/* Строка завершённой игры 1 */}
-      {(stage.k === 'between' || (stage.k === 'play' && stage.gi === 1) || stage.k === 'pick' || stage.k === 'rolloff' || stage.k === 'done') && (
+      {/* Строка завершённых игр (с пометкой ролл-оффа за игру) */}
+      {stage.k !== 'play' || stage.gi === 1 ? (
         <div className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-slate-400">
-          Игра 1: {two.finals[0][0]}:{two.finals[0][1]}
-          {stage.k === 'done' || stage.k === 'pick' || stage.k === 'rolloff' ? (
-            <span> · Игра 2: {two.finals[1][0]}:{two.finals[1][1]}</span>
-          ) : null}
-          {rolloff && (stage.k === 'done' ? <span> · Ролл-офф {rolloff.rounds[rolloff.rounds.length - 1].score.join(':')}</span> : null)}
+          {([0, 1] as const).map((g) =>
+            gameWins[g] !== null || (g === 0 && stage.k !== 'play') ? (
+              <span key={g} className={g === 1 ? 'ml-2' : ''}>
+                Игра {g + 1}: {two.finals[g][0]}:{two.finals[g][1]}
+                {two.winByTotal[g] === null && gameWins[g] !== null && (
+                  <span className="text-amber-400/80"> (Р→{names[gameWins[g] as 0 | 1]})</span>
+                )}
+              </span>
+            ) : null,
+          )}
+          {rolloff && stage.k === 'done' && (
+            <span className="ml-2"> · Ролл-офф за матч {rolloff.rounds[rolloff.rounds.length - 1].score.join(':')}</span>
+          )}
         </div>
-      )}
+      ) : null}
 
       {/* Баннер смены дорожек */}
       {stage.k === 'between' && (
@@ -560,10 +658,10 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
         </div>
       )}
 
-      {/* Выбор стартового игрока ролл-оффа */}
+      {/* Выбор стартового игрока ролл-оффа ЗА МАТЧ */}
       {stage.k === 'pick' && (
         <div className="rounded-lg bg-slate-900 p-4">
-          <div className="text-lg font-extrabold text-amber-400">Ничья {fmtPts(two.points[0])}:{fmtPts(two.points[1])} — ролл-офф!</div>
+          <div className="text-lg font-extrabold text-amber-400">Счёт по играм 1:1 — ролл-офф за матч!</div>
           <p className="mt-1 text-sm text-slate-300">
             {names[stage.who]}: выбери, кто бросает первым. Дальше — по порядку слотов (выбрал 3-го → 3-4-5-1-2).
             По одному броску в полный комплект: сбил больше — очко, ничья — очко обоим. До 3 очков.
@@ -587,8 +685,34 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
         </div>
       )}
 
+      {/* Выбор игрока на ролл-офф ЗА ИГРУ */}
+      {stage.k === 'gpick' && (
+        <div className="rounded-lg bg-slate-900 p-4">
+          <div className="text-lg font-extrabold text-amber-400">
+            Ничья в игре {gi + 1} ({two.finals[gi][0]}:{two.finals[gi][1]}) — ролл-офф за игру!
+          </div>
+          <p className="mt-1 text-sm text-slate-300">
+            {names[stage.who]}: выбери одного игрока. Он бросает в полный комплект; ничья — бросает снова (тот же
+            игрок), первое преимущество решает игру.
+          </p>
+          <div className="mt-3 grid gap-2">
+            {lineups[stage.who].map((p, slot) => (
+              <button
+                key={p.id}
+                onClick={() => handleGamePick(slot)}
+                className="pick-btn flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-800/60 p-2 text-left transition hover:border-amber-400/70"
+              >
+                <span className="w-6 text-center text-lg font-extrabold text-amber-400">{slot + 1}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold">{capName(p.name)}</span>
+                <span className="text-lg font-extrabold tabular-nums">{p.effRating}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Игровой грид: табло/счёт слева, сцена справа (на мобиле сцена сверху) */}
-      {playing && cur && (stage.k === 'play' || stage.k === 'rolloff') && (
+      {playing && cur && (stage.k === 'play' || isRolloffView) && (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] lg:items-start">
           <div className="order-2 space-y-3 lg:order-1">
             {stage.k === 'play' &&
@@ -605,15 +729,16 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
                   activeFrame={cur.team === team ? cur.ev.frame : null}
                 />
               ))}
-            {stage.k === 'rolloff' && rolloff && (
+            {isRolloffView && activeRolloff && (
               <div className="rounded-lg bg-slate-900 p-3">
                 <div className="text-center text-sm font-bold text-slate-300">
-                  Ролл-офф · {names[0]} <span className="text-2xl tabular-nums text-amber-400">{roScore[0]}</span>
+                  {rolloffMode === 'game' ? 'Ролл-офф за игру' : 'Ролл-офф за матч'} · {names[0]}{' '}
+                  <span className="text-2xl tabular-nums text-amber-400">{roScore[0]}</span>
                   <span className="mx-1 text-slate-500">:</span>
                   <span className="text-2xl tabular-nums text-amber-400">{roScore[1]}</span> {names[1]}
                 </div>
                 <div className="mt-2 space-y-0.5 text-xs text-slate-400">
-                  {rolloff.rounds.slice(0, fullRounds).map((r, i) => (
+                  {activeRolloff.rounds.slice(0, fullRounds).map((r, i) => (
                     <div key={i}>
                       Р{i + 1}: {shortName(lineups[0][r.a.slot].name)} <b className="tabular-nums">{r.a.pins}</b> —{' '}
                       <b className="tabular-nums">{r.b.pins}</b> {shortName(lineups[1][r.b.slot].name)}
@@ -666,7 +791,10 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
                 <PinDeck before={cur.ev.pinsBefore} after={impacted ? cur.ev.leaveAfter : cur.ev.pinsBefore} />
                 <div className="min-w-0 flex-1">
                   <div className="text-xs text-slate-500">
-                    {cur.rolloff ? `Ролл-офф · раунд ${cur.ev.frame}` : `Игра ${gi + 1} · фрейм ${cur.ev.frame}`} ·{' '}
+                    {cur.rolloff
+                      ? `${rolloffMode === 'game' ? 'Ролл-офф за игру' : 'Ролл-офф за матч'} · раунд ${cur.ev.frame}`
+                      : `Игра ${gi + 1} · фрейм ${cur.ev.frame}`}{' '}
+                    ·{' '}
                     {names[cur.team]} · дор. {cur.lane === 0 ? '9' : '10'}
                   </div>
                   <div className="truncate font-bold">
@@ -786,12 +914,13 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
             <div className="text-xl font-extrabold">
               🏆 Серию выиграл <span className="text-amber-400">{names[winner]}</span>{' '}
               <span className="tabular-nums">
-                {fmtPts(two.points[0])}:{fmtPts(two.points[1])}
+                {fmtPts(points[0])}:{fmtPts(points[1])}
               </span>
               {rolloff && (
                 <span className="text-amber-400">
                   {' '}
-                  · ролл-офф <span className="tabular-nums">{rolloff.rounds[rolloff.rounds.length - 1].score.join(':')}</span>
+                  · ролл-офф за матч{' '}
+                  <span className="tabular-nums">{rolloff.rounds[rolloff.rounds.length - 1].score.join(':')}</span>
                 </span>
               )}
             </div>

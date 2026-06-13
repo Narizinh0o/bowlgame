@@ -10,10 +10,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  aiAnchor,
   aiRolloffStart,
   buildRatedRoster,
   eventBonusFor,
   leftyBonuses,
+  playGameRolloff,
   rollMatchEvents,
   displayCoef,
   mulberry32,
@@ -275,16 +277,28 @@ console.log('\n=== Реальный ростер ===')
     const fake = [50, 60, 90, 80, 70].map((r, i) => ({ ...midM[i], effRating: r }))
     check(aiRolloffStart(fake) === 2, 'aiRolloffStart: старт с сильнейшей тройки (слот 3)')
 
+    check(aiAnchor([50, 60, 90, 80, 70].map((r, i) => ({ ...midM[i], effRating: r }))) === 2, 'aiAnchor: сильнейший слот 3')
+
     const rngS = mulberry32(77)
     const N = 2000
-    let rolloffs = 0
+    let tiedGames = 0
     for (let i = 0; i < N; i++) {
       const two = playTwoGames(mid5, midM, [0, 0], rngS)
-      const ptsSum = two.points[0] + two.points[1]
-      check(Math.abs(ptsSum - 2) < 1e-9, 'очки серии всегда в сумме 2')
-      if (two.tied) rolloffs++
+      two.winByTotal.forEach((w) => check(w === 0 || w === 1 || w === null, 'winByTotal: 0/1/null'))
+      tiedGames += two.winByTotal.filter((w) => w === null).length
     }
-    console.log(`серии, дошедшие до ролл-оффа: ${((100 * rolloffs) / N).toFixed(1)}%`)
+    console.log(`ничьих в игре (→ ролл-офф за игру): ${((100 * tiedGames) / (N * 2)).toFixed(1)}% игр`)
+
+    // Ролл-офф за игру: всегда победитель, один и тот же слот во всех раундах.
+    const rngG = mulberry32(91)
+    for (let i = 0; i < 500; i++) {
+      const ro = playGameRolloff(mid5, midM, 1, 3, [0, 0], 0, rngG)
+      check(ro.winner === 0 || ro.winner === 1, 'ролл-офф за игру: есть победитель')
+      check(ro.rounds.every((r) => r.a.slot === 1 && r.b.slot === 3), 'ролл-офф за игру: игрок не меняется')
+      const last = ro.rounds[ro.rounds.length - 1]
+      check(last.a.pins !== last.b.pins, 'ролл-офф за игру: решает первое преимущество')
+    }
+    console.log('ролл-офф за игру: победитель, неизменный игрок, первое преимущество ок (500 прогонов)')
 
     const rngR = mulberry32(88)
     for (let i = 0; i < 500; i++) {

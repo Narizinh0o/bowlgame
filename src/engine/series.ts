@@ -6,7 +6,8 @@ import type { Rng } from './rng'
 
 /**
  * Формат «ТВ-финала» КЛБ (GAME_PLAN.md §1): серия из 2 игр со сменой дорожек,
- * очко за игру (ничья в игре — по 0.5), при равенстве очков — ролл-офф до 3.
+ * очко за игру; ничья в игре → ролл-офф за игру (1 бросок, до первого преимущества,
+ * один игрок); при счёте 1-1 по играм → ролл-офф за матч (до 3).
  */
 
 export interface TwoGamesResult {
@@ -15,8 +16,8 @@ export interface TwoGamesResult {
   hcp: [number, number]
   /** Итоги игр с гандикапом: finals[игра][команда]. */
   finals: [[number, number], [number, number]]
-  points: [number, number]
-  tied: boolean
+  /** Победитель игры по тоталу; null — ничья (нужен ролл-офф за игру). */
+  winByTotal: [0 | 1 | null, 0 | 1 | null]
 }
 
 /** Команда на «своей» дорожке игры получает её случайный бонус к рейтингу каждого. */
@@ -38,16 +39,8 @@ export function playTwoGames(
     { a: playBakerGame(onLane(lineupA, laneBonus[1]), rng), b: playBakerGame(onLane(lineupB, laneBonus[0]), rng) },
   ]
   const finals = g.map((game) => [game.a.total + hcp[0], game.b.total + hcp[1]]) as TwoGamesResult['finals']
-  const points: [number, number] = [0, 0]
-  for (const [fa, fb] of finals) {
-    if (fa > fb) points[0] += 1
-    else if (fb > fa) points[1] += 1
-    else {
-      points[0] += 0.5
-      points[1] += 0.5
-    }
-  }
-  return { g, hcp, finals, points, tied: points[0] === points[1] }
+  const winByTotal = finals.map(([fa, fb]) => (fa > fb ? 0 : fb > fa ? 1 : null)) as TwoGamesResult['winByTotal']
+  return { g, hcp, finals, winByTotal }
 }
 
 export interface RolloffThrow {
@@ -128,6 +121,42 @@ export function playRolloff(
   }
   // 60 раундов подряд без перевеса статистически невозможны; страховка от цикла.
   return { start: [startA, startB], rounds, winner: rng() < 0.5 ? 0 : 1 }
+}
+
+/**
+ * Ролл-офф ЗА ИГРУ (при ничьей в игре): один и тот же игрок от каждой команды бросает
+ * по разу в полный комплект; ничья в раунде → бросают ещё раз (тот же игрок); первое
+ * преимущество решает — игра 1-0. Дорожки как в самой игре (бонус дорожки учтён).
+ */
+export function playGameRolloff(
+  lineupA: MatchPlayer[],
+  lineupB: MatchPlayer[],
+  slotA: number,
+  slotB: number,
+  laneBonus: [number, number],
+  gi: 0 | 1,
+  rng: Rng,
+): RolloffResult {
+  const pa = onLane([lineupA[slotA]], gi === 0 ? laneBonus[0] : laneBonus[1])[0]
+  const pb = onLane([lineupB[slotB]], gi === 0 ? laneBonus[1] : laneBonus[0])[0]
+  const rounds: RolloffRound[] = []
+  const score: [number, number] = [0, 0]
+  for (let i = 0; i < 40; i++) {
+    const a = rolloffThrow(pa, slotA, i + 1, rng)
+    const b = rolloffThrow(pb, slotB, i + 1, rng)
+    if (a.pins > b.pins) score[0]++
+    else if (b.pins > a.pins) score[1]++
+    rounds.push({ a, b, score: [score[0], score[1]] })
+    if (score[0] !== score[1]) return { start: [slotA, slotB], rounds, winner: score[0] > score[1] ? 0 : 1 }
+  }
+  return { start: [slotA, slotB], rounds, winner: rng() < 0.5 ? 0 : 1 }
+}
+
+/** ИИ: игрок на ролл-офф за игру — сильнейший по итоговому рейтингу. */
+export function aiAnchor(lineup: MatchPlayer[]): number {
+  let best = 0
+  for (let i = 1; i < lineup.length; i++) if (lineup[i].effRating > lineup[best].effRating) best = i
+  return best
 }
 
 /** ИИ: стартовый слот ролл-оффа — чтобы первые три броска делали сильнейшие. */
