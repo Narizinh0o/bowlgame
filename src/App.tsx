@@ -41,6 +41,9 @@ export default function App() {
     fetch('/data/roster.json')
       .then((r) => r.json())
       .then((roster) => setRated(buildRatedRoster(roster)))
+    // Предзагрузка фото-вспышки желоба: чтобы за её 1 секунду показа на телефоне
+    // не успел вылезти лишь контур (картинка не загружена) — кэшируем заранее.
+    new Image().src = '/assets/gutter.jpg'
   }, [])
 
   const names: [string, string] = mode === 'ai' ? ['Ты', 'Компьютер'] : ['Игрок 1', 'Игрок 2']
