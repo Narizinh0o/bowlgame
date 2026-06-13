@@ -573,28 +573,31 @@ export default function DualLaneView({
       ctx.fillStyle = bg
       ctx.fillRect(0, 0, W, H)
 
-      // логотип: шар + «КээЛБэ» (никаких прав не нарушаем)
+      // логотип: шар + «КээЛБэ» — по центру в промежутке между дорожками (на уровне
+      // кеглей), чтобы не пересекаться с табло фреймов над левой дорожкой
+      const logoY = 108
+      const ballX = 206
       ctx.save()
-      ctx.globalAlpha = 0.9
+      ctx.globalAlpha = 0.82
       ctx.fillStyle = '#f59e0b'
       ctx.beginPath()
-      ctx.arc(W / 2 - 48, 26, 13, 0, Math.PI * 2)
+      ctx.arc(ballX, logoY, 12, 0, Math.PI * 2)
       ctx.fill()
-      ctx.fillStyle = '#1e3a8a'
+      ctx.fillStyle = '#0c1530'
       for (const [hx, hy] of [
         [-4, -4],
         [3, -5],
         [0, 1],
       ]) {
         ctx.beginPath()
-        ctx.arc(W / 2 - 48 + hx, 26 + hy, 1.9, 0, Math.PI * 2)
+        ctx.arc(ballX + hx, logoY + hy, 1.8, 0, Math.PI * 2)
         ctx.fill()
       }
-      ctx.fillStyle = 'rgba(255,255,255,0.92)'
-      ctx.font = '800 19px Inter, sans-serif'
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'
+      ctx.font = '800 18px Inter, sans-serif'
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
-      ctx.fillText('КээЛБэ', W / 2 - 28, 27)
+      ctx.fillText('КээЛБэ', ballX + 16, logoY + 1)
       ctx.restore()
 
       // бейдж трансляции «МячТВ» с мигающим огоньком записи
