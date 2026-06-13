@@ -114,7 +114,7 @@ type Pose = 'throw' | 'idle' | Reaction
 export interface LaneHud {
   name: string
   score: string
-  line: string // строка фреймов «X 9/ 9–» (или пины раундов ролл-оффа)
+  frames: string[] // символы каждого фрейма («X», «9/», «9-»), '' для несыгранного
 }
 
 /** Комикс-облако: текст + от кого тянется хвостик. */
@@ -403,17 +403,38 @@ export default function DualLaneView({
       ctx.textBaseline = 'middle'
       ctx.fillText(laneNumbers[laneIdx], lcx, topY + 8.5)
 
-      // мини-табло над дорожкой: имя · счёт + строка фреймов (обновляется после удара)
+      // мини-табло над дорожкой: имя · счёт + полоса из 10 ячеек (заполняется по ходу)
       const hud = hudRef.current[laneIdx]
       ctx.textAlign = 'center'
       ctx.textBaseline = 'alphabetic'
       ctx.fillStyle = 'rgba(255,255,255,0.92)'
       ctx.font = '700 10px Inter, sans-serif'
-      ctx.fillText(`${hud.name.slice(0, 12)} · ${hud.score}`, lcx, topY - 16)
-      if (hud.line) {
-        ctx.fillStyle = 'rgba(226,232,240,0.75)'
-        ctx.font = '600 7.5px Inter, sans-serif'
-        ctx.fillText(hud.line.length > 34 ? '…' + hud.line.slice(-33) : hud.line, lcx, topY - 6)
+      ctx.fillText(`${hud.name.slice(0, 12)} · ${hud.score}`, lcx, topY - 30)
+
+      const fw = 120
+      const fx0 = lcx - fw / 2
+      const fy = topY - 25
+      const fh = 15
+      const cw = fw / 10
+      ctx.fillStyle = 'rgba(2,6,23,0.55)'
+      ctx.beginPath()
+      ctx.roundRect(fx0, fy, fw, fh, 3)
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(148,163,184,0.25)'
+      ctx.lineWidth = 0.5
+      for (let i = 1; i < 10; i++) {
+        ctx.beginPath()
+        ctx.moveTo(fx0 + i * cw, fy)
+        ctx.lineTo(fx0 + i * cw, fy + fh)
+        ctx.stroke()
+      }
+      ctx.textBaseline = 'middle'
+      ctx.font = '700 8px Inter, sans-serif'
+      for (let i = 0; i < 10; i++) {
+        const sym = hud.frames[i] ?? ''
+        if (!sym) continue
+        ctx.fillStyle = sym.includes('X') || sym.includes('/') ? '#fbbf24' : '#e2e8f0'
+        ctx.fillText(sym, fx0 + i * cw + cw / 2, fy + fh / 2 + 0.5)
       }
 
       // вердикт дорожки — сразу под кеглями, на верху настила; цвет по знаку

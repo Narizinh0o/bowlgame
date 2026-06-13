@@ -506,24 +506,16 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
   )
   const hud: [LaneHud, LaneHud] = [0, 1].map((lane) => {
     const t = gi === 0 ? (lane as 0 | 1) : ((1 - lane) as 0 | 1)
-    let line: string
+    let frames: string[]
     if (stage.k === 'rolloff') {
-      line = rolloff
-        ? rolloff.rounds
-            .slice(0, fullRounds)
-            .map((r) => (t === 0 ? r.a.pins : r.b.pins))
-            .join(' ')
-        : ''
+      frames = rolloff ? rolloff.rounds.slice(0, fullRounds).map((r) => String(t === 0 ? r.a.pins : r.b.pins)) : []
     } else {
-      line = boards[t].frames
-        .filter((f): f is FrameScore => f !== null)
-        .map((f, i) => frameSymbols(f.throws, i === 9).join(''))
-        .join(' ')
+      frames = boards[t].frames.map((f, i) => (f ? frameSymbols(f.throws, i === 9).join('') : ''))
     }
     return {
       name: names[t],
       score: stage.k === 'rolloff' ? String(roScore[t]) : String(boards[t].total),
-      line,
+      frames,
     }
   }) as [LaneHud, LaneHud]
   const benchGenders = cur ? lineups[cur.team].filter((p) => p.id !== cur.ev.playerId).map((p) => p.gender) : []
@@ -597,7 +589,7 @@ export default function MatchScreen({ names, lineups, mode, onNewDraft, onMenu }
 
       {/* Игровой грид: табло/счёт слева, сцена справа (на мобиле сцена сверху) */}
       {playing && cur && (stage.k === 'play' || stage.k === 'rolloff') && (
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] lg:items-start">
           <div className="order-2 space-y-3 lg:order-1">
             {stage.k === 'play' &&
               ([0, 1] as const).map((team) => (

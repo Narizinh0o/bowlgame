@@ -110,7 +110,7 @@ export default function App() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl p-3 md:p-4">
+    <div className="mx-auto max-w-6xl p-3 md:p-4">
       {screen.s !== 'menu' && (
         <header className="mb-3 flex items-center justify-between">
           <button onClick={() => setScreen({ s: 'menu' })} className="text-sm text-slate-400 transition hover:text-slate-200">
