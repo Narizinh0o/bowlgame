@@ -411,30 +411,34 @@ export default function DualLaneView({
       ctx.font = '700 10px Inter, sans-serif'
       ctx.fillText(`${hud.name.slice(0, 12)} · ${hud.score}`, lcx, topY - 30)
 
-      const fw = 120
+      const fw = 124
       const fx0 = lcx - fw / 2
       const fy = topY - 25
       const fh = 15
-      const cw = fw / 10
+      const unit = fw / 10.5 // 10-й фрейм в 1.5 раза шире (3 символа)
+      const cellW = (i: number) => (i === 9 ? unit * 1.5 : unit)
       ctx.fillStyle = 'rgba(2,6,23,0.55)'
       ctx.beginPath()
       ctx.roundRect(fx0, fy, fw, fh, 3)
       ctx.fill()
       ctx.strokeStyle = 'rgba(148,163,184,0.25)'
       ctx.lineWidth = 0.5
-      for (let i = 1; i < 10; i++) {
-        ctx.beginPath()
-        ctx.moveTo(fx0 + i * cw, fy)
-        ctx.lineTo(fx0 + i * cw, fy + fh)
-        ctx.stroke()
-      }
-      ctx.textBaseline = 'middle'
-      ctx.font = '700 8px Inter, sans-serif'
+      let acc = fx0
       for (let i = 0; i < 10; i++) {
+        if (i > 0) {
+          ctx.beginPath()
+          ctx.moveTo(acc, fy)
+          ctx.lineTo(acc, fy + fh)
+          ctx.stroke()
+        }
         const sym = hud.frames[i] ?? ''
-        if (!sym) continue
-        ctx.fillStyle = sym.includes('X') || sym.includes('/') ? '#fbbf24' : '#e2e8f0'
-        ctx.fillText(sym, fx0 + i * cw + cw / 2, fy + fh / 2 + 0.5)
+        if (sym) {
+          ctx.fillStyle = sym.includes('X') || sym.includes('/') ? '#fbbf24' : '#e2e8f0'
+          ctx.textBaseline = 'middle'
+          ctx.font = `700 ${i === 9 ? 7 : 8}px Inter, sans-serif`
+          ctx.fillText(sym, acc + cellW(i) / 2, fy + fh / 2 + 0.5)
+        }
+        acc += cellW(i)
       }
 
       // вердикт дорожки — сразу под кеглями, на верху настила; цвет по знаку

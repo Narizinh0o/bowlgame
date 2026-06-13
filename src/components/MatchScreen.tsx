@@ -111,12 +111,12 @@ function partialFrames(shownEvents: ThrowEvent[]): { frames: (FrameScore | null)
 function FrameCell({ frame, isTenth, active }: { frame: FrameScore | null; isTenth: boolean; active: boolean }) {
   return (
     <div
-      className={`flex min-w-[2.5rem] flex-1 flex-col items-center border-r border-slate-700 last:border-r-0 ${
-        active ? 'bg-amber-500/10' : ''
-      }`}
+      className={`flex min-w-0 flex-col items-center border-r border-slate-700 last:border-r-0 ${
+        isTenth ? 'flex-[1.5]' : 'flex-1'
+      } ${active ? 'bg-amber-500/10' : ''}`}
     >
-      <div className="h-4 text-xs text-slate-400">{frame ? frameSymbols(frame.throws, isTenth).join(' ') : ''}</div>
-      <div className="h-6 font-semibold tabular-nums">{frame?.cumulative ?? ''}</div>
+      <div className="h-4 text-[11px] text-slate-400">{frame ? frameSymbols(frame.throws, isTenth).join(' ') : ''}</div>
+      <div className="h-6 text-sm font-semibold tabular-nums">{frame?.cumulative ?? ''}</div>
     </div>
   )
 }
@@ -156,7 +156,7 @@ function TeamBoard({
         </span>
         <span className="text-2xl font-extrabold tabular-nums">{total}</span>
       </div>
-      <div className="flex overflow-x-auto rounded border border-slate-700 bg-slate-800/50 p-1">
+      <div className="flex overflow-hidden rounded border border-slate-700 bg-slate-800/50 p-1">
         {frames.map((f, i) => (
           <FrameCell key={i} frame={f} isTenth={i === 9} active={activeFrame === i + 1} />
         ))}
